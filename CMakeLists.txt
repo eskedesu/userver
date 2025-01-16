@@ -143,6 +143,7 @@ option(USERVER_FEATURE_MYSQL "Provide asynchronous driver for MariaDB/MySQL" "${
 option(USERVER_FEATURE_ROCKS "Provide asynchronous driver for Rocks" "${USERVER_LIB_ENABLED_DEFAULT}")
 option(USERVER_FEATURE_YDB "Provide asynchronous driver for YDB" "${USERVER_YDB_DEFAULT}")
 option(USERVER_FEATURE_OTLP "Provide asynchronous OTLP exporters" "${USERVER_LIB_ENABLED_DEFAULT}")
+option(USERVER_FEATURE_ETCD "Provide asynchronous driver for etcd" "${USERVER_LIB_ENABLED_DEFAULT}")
 
 set(CMAKE_DEBUG_POSTFIX d)
 
@@ -275,6 +276,11 @@ if (USERVER_FEATURE_YDB)
   _require_userver_core("USERVER_FEATURE_YDB")
   add_subdirectory(ydb)
   list(APPEND USERVER_AVAILABLE_COMPONENTS ydb)
+endif()
+
+if (USERVER_FEATURE_ETCD)
+  _require_userver_core("USERVER_FEATURE_ETCD")
+  add_subdirectory(etcd)
 endif()
 
 add_subdirectory(libraries)
