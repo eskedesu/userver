@@ -83,7 +83,6 @@ std::vector<std::string> ClientV2::Range(const std::string& key) {
             crypto::base64::Base64Decode(key_value["value"].As<std::string>())
         );
     }
-    LOG_ERROR() << "||| " << values[0];
     return values;
 }
 
