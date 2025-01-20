@@ -1,6 +1,7 @@
 #include <userver/storages/etcd/component.hpp>
 
 #include <userver/clients/http/component.hpp>
+#include <userver/storages/etcd/settings.hpp>
 #include <userver/yaml_config/merge_schemas.hpp>
 
 
@@ -19,15 +20,24 @@ Component::Component(const components::ComponentConfig& config, const components
 yaml_config::Schema Component::GetStaticConfigSchema() {
     return yaml_config::MergeSchemas<ComponentBase>(R"(
 type: object
-description: Etcd client component
+description: Etcd cluster component
 additionalProperties: false
 properties:
     endpoints:
         type: array
-        description: etcd hosts
+        description: Etcd endpoints
         items:
             type: string
             description: host
+    retries:
+        type: integer
+        description: >
+            Number of retries per one endpoints, total number of retries is number of endpoints times retries
+        minimum: 1
+    request_timeout_ms:
+        type: integer
+        description: Number of miliseconds to timeout request
+        minimum: 1
 )");
 }
 
