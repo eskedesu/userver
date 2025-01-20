@@ -12,9 +12,9 @@ namespace storages::etcd {
 Component::Component(const components::ComponentConfig& config, const components::ComponentContext& context)
     :
     ComponentBase(config, context),
-    etcd_client_v2_ptr_(std::make_shared<ClientV2>(
+    etcd_client_ptr_(std::make_shared<Client>(
         context.FindComponent<components::HttpClient>().GetHttpClient(),
-        config.As<ClientV2Settings>()
+        config.As<ClientSettings>()
     )) {}
 
 yaml_config::Schema Component::GetStaticConfigSchema() {
@@ -41,8 +41,8 @@ properties:
 )");
 }
 
-ClientV2Ptr Component::GetClientV2() {
-    return etcd_client_v2_ptr_;
+ClientPtr Component::GetClient() {
+    return etcd_client_ptr_;
 }
 
 }  // namespace storages::etcd

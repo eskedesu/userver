@@ -70,16 +70,16 @@ bool ShouldRetry(std::shared_ptr<clients::http::Response> response) {
 
 }
 
-ClientV2::ClientV2(clients::http::Client& http_client, ClientV2Settings settings)
+Client::Client(clients::http::Client& http_client, ClientSettings settings)
     : http_client_(http_client),
     settings_(settings) {
 }
 
-void ClientV2::Put(const std::string& key, const std::string& value) {
+void Client::Put(const std::string& key, const std::string& value) {
     auto response = PerformEtcdRequest(BuildPutUrl, BuildPutData(key, value));
 }
 
-std::vector<std::string> ClientV2::Range(const std::string& key) {
+std::vector<std::string> Client::Range(const std::string& key) {
     auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key));
 
     const auto json_body = formats::json::FromString(response->body());
@@ -94,11 +94,11 @@ std::vector<std::string> ClientV2::Range(const std::string& key) {
     return values;
 }
 
-void ClientV2::DeleteRange(const std::string& key) {
+void Client::DeleteRange(const std::string& key) {
     auto response = PerformEtcdRequest(BuildDeleteRangeUrl, BuildDeleteRangeData(key));
 }
 
-std::shared_ptr<clients::http::Response> ClientV2::PerformEtcdRequest(
+std::shared_ptr<clients::http::Response> Client::PerformEtcdRequest(
     const std::function<std::string(const std::string&)>& url_builder, const std::string& data
 ) {
     endpoints_shared_mutex_.lock_shared();

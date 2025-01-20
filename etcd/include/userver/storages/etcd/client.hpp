@@ -14,9 +14,9 @@ USERVER_NAMESPACE_BEGIN
 
 namespace storages::etcd {
 
-class ClientV2 final {
+class Client final {
 public:
-    ClientV2(clients::http::Client& http_client, ClientV2Settings settings);
+    Client(clients::http::Client& http_client, ClientSettings settings);
     void Put(const std::string& key, const std::string& value);
     [[nodiscard]] std::vector<std::string> Range(const std::string& key);
     void DeleteRange(const std::string& key);
@@ -26,10 +26,10 @@ private:
 
     clients::http::Client& http_client_;
     engine::SharedMutex endpoints_shared_mutex_;
-    ClientV2Settings settings_;
+    ClientSettings settings_;
 };
 
-using ClientV2Ptr = std::shared_ptr<ClientV2>;
+using ClientPtr = std::shared_ptr<Client>;
 
 }
 

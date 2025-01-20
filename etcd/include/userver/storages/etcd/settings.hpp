@@ -10,7 +10,7 @@ USERVER_NAMESPACE_BEGIN
 
 namespace storages::etcd {
 
-struct ClientV2Settings final {
+struct ClientSettings final {
     std::vector<std::string> endpoints;
     std::uint32_t retries;
     std::chrono::microseconds request_timeout_ms;
@@ -20,7 +20,7 @@ struct ClientV2Settings final {
 
 namespace formats::parse {
 
-storages::etcd::ClientV2Settings Parse(const yaml_config::YamlConfig& value, To<storages::etcd::ClientV2Settings>);
+storages::etcd::ClientSettings Parse(const yaml_config::YamlConfig& value, To<storages::etcd::ClientSettings>);
 
 }
 
