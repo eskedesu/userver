@@ -19,10 +19,10 @@ public:
 
     static yaml_config::Schema GetStaticConfigSchema();
 
-    ClientV2Ptr GetClientV2();
+    ClientPtr GetClient();
 
 private:
-    const ClientV2Ptr etcd_client_v2_ptr_;
+    const ClientPtr etcd_client_ptr_;
 };
 
 }

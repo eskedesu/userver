@@ -19,8 +19,8 @@ constexpr std::chrono::milliseconds kDefaultRequestTimeout{1'000};
 
 namespace formats::parse {
 
-storages::etcd::ClientV2Settings Parse(const yaml_config::YamlConfig& cofig, To<storages::etcd::ClientV2Settings>) {
-    storages::etcd::ClientV2Settings result;
+storages::etcd::ClientSettings Parse(const yaml_config::YamlConfig& cofig, To<storages::etcd::ClientSettings>) {
+    storages::etcd::ClientSettings result;
     result.endpoints = cofig["endpoints"].As<std::vector<std::string>>(result.endpoints);
     result.retries = cofig["retries"].As<std::uint32_t>(storages::etcd::kDefaultRetries);
     result.request_timeout_ms = cofig["request_timeout_ms"].As<std::chrono::milliseconds>(storages::etcd::kDefaultRequestTimeout);
