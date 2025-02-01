@@ -12,7 +12,7 @@ namespace storages::etcd {
 Component::Component(const components::ComponentConfig& config, const components::ComponentContext& context)
     :
     ComponentBase(config, context),
-    etcd_client_ptr_(std::make_shared<Client>(
+    etcd_client_ptr_(std::make_shared<impl::ClientImpl>(
         context.FindComponent<components::HttpClient>().GetHttpClient(),
         config.As<ClientSettings>()
     )) {}

@@ -11,9 +11,9 @@ USERVER_NAMESPACE_BEGIN
 namespace storages::etcd {
 
 struct ClientSettings final {
-    std::vector<std::string> endpoints;
-    std::uint32_t retries;
-    std::chrono::microseconds request_timeout_ms;
+    const std::vector<std::string> endpoints;
+    const std::uint32_t retries;
+    const std::chrono::microseconds request_timeout_ms;
 };
 
 }

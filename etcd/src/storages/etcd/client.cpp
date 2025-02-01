@@ -1,3 +1,5 @@
+#include <cstddef>
+#include <memory>
 #include <userver/storages/etcd/client.hpp>
 
 #include <iostream>
@@ -5,14 +7,19 @@
 
 #include <fmt/format.h>
 
+#include <userver/clients/http/streamed_response.hpp>
+#include <userver/http/status_code.hpp>
+#include <userver/concurrent/queue.hpp>
 #include <userver/crypto/base64.hpp>
 #include <userver/dynamic_config/value.hpp>
+#include <userver/formats/json/value_builder.hpp>
 #include <userver/formats/json/string_builder.hpp>
 #include <userver/formats/parse/common_containers.hpp>
 #include <userver/http/common_headers.hpp>
 #include <userver/logging/log.hpp>
 #include <userver/utils/rand.hpp>
 #include <userver/yaml_config/yaml_config.hpp>
+#include <userver/utils/async.hpp>
 
 USERVER_NAMESPACE_BEGIN
 
@@ -25,15 +32,10 @@ std::string BuildPutUrl(const std::string& service_url) {
 }
 
 std::string BuildPutData(const std::string& key, const std::string& value) {
-    formats::json::StringBuilder sb;
-    {
-        formats::json::StringBuilder::ObjectGuard guard{sb};
-        sb.Key("key");
-        sb.WriteString(crypto::base64::Base64Encode(key));
-        sb.Key("value");
-        sb.WriteString(crypto::base64::Base64Encode(value));
-    }
-    return sb.GetString();
+    formats::json::ValueBuilder builder;
+    builder["key"] = crypto::base64::Base64Encode(key);
+    builder["value"] = crypto::base64::Base64Encode(value);
+    return formats::json::ToString(builder.ExtractValue());
 }
 
 std::string BuildRangeUrl(const std::string& service_url) {
@@ -41,13 +43,9 @@ std::string BuildRangeUrl(const std::string& service_url) {
 }
 
 std::string BuildRangeData(const std::string& key) {
-    formats::json::StringBuilder sb;
-    {
-        formats::json::StringBuilder::ObjectGuard guard{sb};
-        sb.Key("key");
-        sb.WriteString(crypto::base64::Base64Encode(key));
-    }
-    return sb.GetString();
+    formats::json::ValueBuilder builder;
+    builder["key"] = crypto::base64::Base64Encode(key);
+    return formats::json::ToString(builder.ExtractValue());
 }
 
 std::string BuildDeleteRangeUrl(const std::string& service_url) {
@@ -55,31 +53,40 @@ std::string BuildDeleteRangeUrl(const std::string& service_url) {
 }
 
 std::string BuildDeleteRangeData(const std::string& key) {
-    formats::json::StringBuilder sb;
-    {
-        formats::json::StringBuilder::ObjectGuard guard{sb};
-        sb.Key("key");
-        sb.WriteString(crypto::base64::Base64Encode(key));
-    }
-    return sb.GetString();
+    formats::json::ValueBuilder builder;
+    builder["key"] = crypto::base64::Base64Encode(key);
+    return formats::json::ToString(builder.ExtractValue());
 }
 
-bool ShouldRetry(std::shared_ptr<clients::http::Response> response) {
+
+std::string BuildWatchUrl(const std::string& service_url) {
+    return fmt::format("{}/v3/watch", service_url);
+}
+
+std::string BuildWatchData(const std::string& key) {
+    formats::json::ValueBuilder builder;
+    builder["create_request"]["key"] = crypto::base64::Base64Encode(key);
+    return formats::json::ToString(builder.ExtractValue());
+}
+
+bool ShouldRetry(const http::StatusCode status_code) {
     return false;
 }
 
 }
 
-Client::Client(clients::http::Client& http_client, ClientSettings settings)
+namespace impl {
+
+ClientImpl::ClientImpl(clients::http::Client& http_client, ClientSettings settings)
     : http_client_(http_client),
     settings_(settings) {
 }
 
-void Client::Put(const std::string& key, const std::string& value) {
+void ClientImpl::Put(const std::string& key, const std::string& value) {
     auto response = PerformEtcdRequest(BuildPutUrl, BuildPutData(key, value));
 }
 
-std::vector<std::string> Client::Range(const std::string& key) {
+std::vector<std::string> ClientImpl::Range(const std::string& key) {
     auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key));
 
     const auto json_body = formats::json::FromString(response->body());
@@ -94,16 +101,53 @@ std::vector<std::string> Client::Range(const std::string& key) {
     return values;
 }
 
-void Client::DeleteRange(const std::string& key) {
+void ClientImpl::DeleteRange(const std::string& key) {
     auto response = PerformEtcdRequest(BuildDeleteRangeUrl, BuildDeleteRangeData(key));
 }
 
-std::shared_ptr<clients::http::Response> Client::PerformEtcdRequest(
+clients::http::StreamedResponse ClientImpl::PerformStreamEtcdRequest(
+    const std::function<std::string(const std::string&)>& url_builder, const std::string& data
+){
+    auto endpoints = settings_.endpoints;
+    utils::Shuffle(endpoints);
+    
+    for (const auto& endpoint : endpoints) {
+        const auto queue = concurrent::StringStreamQueue::Create();
+        auto stream_response = http_client_
+                .CreateRequest()
+                .post(url_builder(endpoint), data)
+                .retry(settings_.retries)
+                .timeout(1'000'000'000)
+                .async_perform_stream_body(queue);
+        if (!ShouldRetry(stream_response.StatusCode())) {
+            return stream_response;
+        }
+    }
+}
+
+void ClientImpl::StartWatch(const std::string& key) {
+
+    const auto data = BuildWatchData(key);
+    auto stream_response = PerformStreamEtcdRequest(BuildWatchUrl, BuildWatchData(key));
+
+    watch_task_ = utils::Async(
+        "watch task",
+        [stream_response = std::move(stream_response)] mutable {
+            std::string body_part;
+            std::string result;
+            const auto deadline = engine::Deadline::FromDuration(std::chrono::seconds{100'000'000});
+            while (stream_response.ReadChunk(body_part, deadline)) {
+                LOG_ERROR() << "Kek   " << body_part;
+                result += body_part;
+            } 
+        }
+    );
+}
+
+std::shared_ptr<clients::http::Response> ClientImpl::PerformEtcdRequest(
     const std::function<std::string(const std::string&)>& url_builder, const std::string& data
 ) {
-    endpoints_shared_mutex_.lock_shared();
     auto endpoints = settings_.endpoints;
-    endpoints_shared_mutex_.unlock_shared();
     utils::Shuffle(endpoints);
 
     for (const auto& endpoint : endpoints) {
@@ -114,10 +158,12 @@ std::shared_ptr<clients::http::Response> Client::PerformEtcdRequest(
             .timeout(settings_.request_timeout_ms.count())
             .perform();
         LOG_DEBUG() << "Response: " << formats::json::FromString(response->body());
-        if (!ShouldRetry(response)) {
+        if (!ShouldRetry(response->status_code())) {
             return response;
         }
     }
+}
+
 }
 
 }  // namespace storages::etcd

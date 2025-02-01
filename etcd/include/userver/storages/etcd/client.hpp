@@ -3,10 +3,11 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <userver/clients/http/component.hpp>
-#include <userver/engine/shared_mutex.hpp>
+#include <userver/engine/task/task_with_result.hpp>
 #include <userver/storages/etcd/settings.hpp>
 #include <userver/yaml_config/fwd.hpp>
 
@@ -14,20 +15,43 @@ USERVER_NAMESPACE_BEGIN
 
 namespace storages::etcd {
 
-class Client final {
+namespace impl {
+
+class ClientImpl;
+
+}
+
+class Client {
 public:
-    Client(clients::http::Client& http_client, ClientSettings settings);
-    void Put(const std::string& key, const std::string& value);
-    [[nodiscard]] std::vector<std::string> Range(const std::string& key);
-    void DeleteRange(const std::string& key);
+    virtual ~Client() = default;
+    virtual void Put(const std::string& key, const std::string& value) = 0;
+    [[nodiscard]] virtual std::vector<std::string> Range(const std::string& key) = 0;
+    virtual void DeleteRange(const std::string& key) = 0;
+    virtual void StartWatch(const std::string& key) = 0;
+};
+
+namespace impl {
+
+class ClientImpl : public Client {
+    public:
+    ~ClientImpl() override = default;
+    ClientImpl(clients::http::Client& http_client, ClientSettings settings);
+    void Put(const std::string& key, const std::string& value) override;
+    [[nodiscard]] std::vector<std::string> Range(const std::string& key) override;
+    void DeleteRange(const std::string& key) override;
+    void StartWatch(const std::string& key) override;  
 private:
     [[nodiscard]] std::shared_ptr<clients::http::Response>
      PerformEtcdRequest(const std::function<std::string(const std::string&)>& url_builder, const std::string& data);
+    [[nodiscard]] clients::http::StreamedResponse PerformStreamEtcdRequest(
+    const std::function<std::string(const std::string&)>& url_builder, const std::string& data);
 
     clients::http::Client& http_client_;
-    engine::SharedMutex endpoints_shared_mutex_;
-    ClientSettings settings_;
+    userver::engine::TaskWithResult<void> watch_task_;
+    const ClientSettings settings_;
 };
+
+}
 
 using ClientPtr = std::shared_ptr<Client>;
 
