@@ -9,7 +9,6 @@
 
 #include <userver/clients/http/streamed_response.hpp>
 #include <userver/http/status_code.hpp>
-#include <userver/concurrent/queue.hpp>
 #include <userver/crypto/base64.hpp>
 #include <userver/dynamic_config/value.hpp>
 #include <userver/formats/json/value_builder.hpp>
@@ -105,6 +104,49 @@ void ClientImpl::DeleteRange(const std::string& key) {
     auto response = PerformEtcdRequest(BuildDeleteRangeUrl, BuildDeleteRangeData(key));
 }
 
+WatchListener ClientImpl::StartWatch(const std::string& key) {
+
+    const auto data = BuildWatchData(key);
+    auto stream_response = PerformStreamEtcdRequest(BuildWatchUrl, BuildWatchData(key));
+    auto queue = concurrent::SpscQueue<KVEvent>::Create();
+    // TODO: add lock
+    watch_queues_.push_back(queue);
+    watch_tasks_.push_back(utils::Async(
+        "watch task",
+        [stream_response = std::move(stream_response), produser = queue->GetProducer()] mutable {
+            std::string body_part;
+            const auto deadline = engine::Deadline::FromDuration(std::chrono::seconds{100'000'000});
+            while (stream_response.ReadChunk(body_part, deadline)) {
+                const auto watch_response = formats::json::FromString(body_part);
+                LOG_ERROR() << watch_response;
+                if (!watch_response["result"].HasMember("events")) {
+                    LOG_INFO() << "No events in watch part response, skipping";
+                    continue;
+                }
+                for (const auto event : watch_response["result"]["events"]) {
+                    if (!event.HasMember("kv")) {
+                        continue;
+                    }
+                    const auto key = crypto::base64::Base64Decode(event["kv"]["key"].As<std::string>());
+                    const auto value = crypto::base64::Base64Decode(event["kv"]["value"].As<std::string>());
+                    const auto version = std::stoi(event["kv"]["version"].As<std::string>());
+                    if (!produser.PushNoblock({
+                        .key = key,
+                        .value = value,
+                        .version = version,
+                    })) {
+                        LOG_ERROR() << "PushNoblock failed";
+                        return;
+                    };
+                }
+            } 
+        }
+    ));
+    return WatchListener{
+        .consumer = queue->GetConsumer()
+    };
+}
+
 clients::http::StreamedResponse ClientImpl::PerformStreamEtcdRequest(
     const std::function<std::string(const std::string&)>& url_builder, const std::string& data
 ){
@@ -123,25 +165,6 @@ clients::http::StreamedResponse ClientImpl::PerformStreamEtcdRequest(
             return stream_response;
         }
     }
-}
-
-void ClientImpl::StartWatch(const std::string& key) {
-
-    const auto data = BuildWatchData(key);
-    auto stream_response = PerformStreamEtcdRequest(BuildWatchUrl, BuildWatchData(key));
-
-    watch_task_ = utils::Async(
-        "watch task",
-        [stream_response = std::move(stream_response)] mutable {
-            std::string body_part;
-            std::string result;
-            const auto deadline = engine::Deadline::FromDuration(std::chrono::seconds{100'000'000});
-            while (stream_response.ReadChunk(body_part, deadline)) {
-                LOG_ERROR() << "Kek   " << body_part;
-                result += body_part;
-            } 
-        }
-    );
 }
 
 std::shared_ptr<clients::http::Response> ClientImpl::PerformEtcdRequest(
