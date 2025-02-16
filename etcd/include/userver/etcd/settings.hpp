@@ -8,19 +8,19 @@
 
 USERVER_NAMESPACE_BEGIN
 
-namespace storages::etcd {
+namespace etcd {
 
 struct ClientSettings final {
     const std::vector<std::string> endpoints;
-    const std::uint32_t retries;
+    const std::uint32_t attempts;
     const std::chrono::microseconds request_timeout_ms;
 };
 
-}
+}  // namespace etcd
 
 namespace formats::parse {
 
-storages::etcd::ClientSettings Parse(const yaml_config::YamlConfig& value, To<storages::etcd::ClientSettings>);
+etcd::ClientSettings Parse(const yaml_config::YamlConfig& value, To<etcd::ClientSettings>);
 
 }
 
