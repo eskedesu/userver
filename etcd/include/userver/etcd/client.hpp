@@ -20,37 +20,15 @@ namespace etcd {
 class Client {
 public:
     virtual ~Client() = default;
+
     virtual void Put(const std::string& key, const std::string& value) = 0;
+
     [[nodiscard]] virtual std::vector<std::string> Range(const std::string& key) = 0;
+
     virtual void DeleteRange(const std::string& key) = 0;
+
     virtual WatchListener StartWatch(const std::string& key) = 0;
 };
-
-// namespace impl {
-
-// class ClientImpl : public Client {
-// public:
-//     ~ClientImpl() override = default;
-//     ClientImpl(clients::http::Client& http_client, ClientSettings settings);
-//     void Put(const std::string& key, const std::string& value) override;
-//     [[nodiscard]] std::vector<std::string> Range(const std::string& key) override;
-//     void DeleteRange(const std::string& key) override;
-//     WatchListener StartWatch(const std::string& key) override;
-
-// private:
-//     [[nodiscard]] std::shared_ptr<clients::http::Response>
-//     PerformEtcdRequest(const std::function<std::string(const std::string&)>& url_builder, const std::string& data);
-//     [[nodiscard]] clients::http::StreamedResponse PerformStreamEtcdRequest(
-//         const std::function<std::string(const std::string&)>& url_builder,
-//         const std::string& data
-//     );
-
-//     clients::http::Client& http_client_;
-//     std::vector<std::shared_ptr<concurrent::SpscQueue<KeyValueEvent>>> watch_queues_;
-//     const ClientSettings settings_;
-// };
-
-// }  // namespace impl
 
 using ClientPtr = std::shared_ptr<Client>;
 

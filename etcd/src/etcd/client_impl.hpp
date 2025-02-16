@@ -13,17 +13,21 @@ namespace impl {
 
 class ClientImpl : public Client {
 public:
-    ~ClientImpl() override = default;
     ClientImpl(clients::http::Client& http_client, ClientSettings settings);
+
     void Put(const std::string& key, const std::string& value) override;
+
     [[nodiscard]] std::vector<std::string> Range(const std::string& key) override;
+
     void DeleteRange(const std::string& key) override;
+
     WatchListener StartWatch(const std::string& key) override;
 
 private:
     [[nodiscard]] std::shared_ptr<clients::http::Response>
     PerformEtcdRequest(const std::function<std::string(const std::string&)>& url_builder, const std::string& data);
-    [[nodiscard]] clients::http::StreamedResponse PerformStreamEtcdRequest(
+
+    [[nodiscard]] clients::http::StreamedResponse PerformStreamedEtcdRequest(
         const std::function<std::string(const std::string&)>& url_builder,
         const std::string& data
     );

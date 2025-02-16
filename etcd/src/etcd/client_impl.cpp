@@ -67,7 +67,7 @@ bool ShouldRetry(const http::StatusCode status_code) {
 
 void CheckRequestStatusCode(const http::StatusCode status_code) {
     if (status_code < kMinGoodStatusCode || kMaxGoodStatusCode < status_code) {
-        throw EtcdError("Got bad status code from etcd");
+        throw EtcdError(fmt::format("Got bad status code from etcd: {}", status_code));
     }
 }
 
@@ -101,14 +101,14 @@ void ClientImpl::DeleteRange(const std::string& key) {
 
 WatchListener ClientImpl::StartWatch(const std::string& key) {
     const auto data = BuildWatchData(key);
-    auto stream_response = PerformStreamEtcdRequest(BuildWatchUrl, BuildWatchData(key));
+    auto stream_response = PerformStreamedEtcdRequest(BuildWatchUrl, BuildWatchData(key));
     auto queue = concurrent::SpscQueue<KeyValueEvent>::Create();
 
     watch_queues_lock_.lock();
     watch_queues_.push_back(queue);
     watch_queues_lock_.unlock();
 
-    utils::Async("watch task", [stream_response = std::move(stream_response), produser = queue->GetProducer()] mutable {
+    utils::Async("watch task", [stream_response = std::move(stream_response), produсer = queue->GetProducer()] mutable {
         std::string body_part;
         const auto deadline = engine::Deadline::FromDuration(std::chrono::seconds{100'000'000});
         while (stream_response.ReadChunk(body_part, deadline)) {
@@ -118,11 +118,11 @@ WatchListener ClientImpl::StartWatch(const std::string& key) {
                 LOG_INFO() << "No events in watch part response, skipping";
                 continue;
             }
-            for (const auto event : watch_response["result"]["events"]) {
+            for (const auto& event : watch_response["result"]["events"]) {
                 if (!event.HasMember("kv")) {
                     continue;
                 }
-                if (!produser.PushNoblock(event["kv"].As<KeyValueEvent>())) {
+                if (!produсer.PushNoblock(event["kv"].As<KeyValueEvent>())) {
                     LOG_ERROR() << "PushNoblock failed";
                     return;
                 };
@@ -132,26 +132,34 @@ WatchListener ClientImpl::StartWatch(const std::string& key) {
     return WatchListener{.consumer = queue->GetConsumer()};
 }
 
-clients::http::StreamedResponse ClientImpl::PerformStreamEtcdRequest(
+clients::http::StreamedResponse ClientImpl::PerformStreamedEtcdRequest(
     const std::function<std::string(const std::string&)>& url_builder,
     const std::string& data
 ) {
     auto endpoints = settings_.endpoints;
     utils::Shuffle(endpoints);
 
+    std::optional<clients::http::StreamedResponse> maybe_streamed_response;
     for (const auto& endpoint : endpoints) {
         const auto queue = concurrent::StringStreamQueue::Create();
-        auto stream_response = http_client_.CreateRequest()
-                                   .post(url_builder(endpoint), data)
-                                   .retry(settings_.attempts)
-                                   .timeout(1'000'000'000)
-                                   .async_perform_stream_body(queue);
-        if (!ShouldRetry(stream_response.StatusCode())) {
-            CheckRequestStatusCode(stream_response.StatusCode());
-            return stream_response;
+        maybe_streamed_response = http_client_.CreateRequest()
+                                      .post(url_builder(endpoint), data)
+                                      .retry(settings_.attempts)
+                                      .timeout(1'000'000'000)
+                                      .async_perform_stream_body(queue);
+        auto& streamed_response = maybe_streamed_response.value();
+        if (!ShouldRetry(streamed_response.StatusCode())) {
+            CheckRequestStatusCode(streamed_response.StatusCode());
+            return std::move(streamed_response);
         }
     }
-    throw EtcdError("Failed to get Ok response from etcd");
+    if (maybe_streamed_response.has_value()) {
+        throw EtcdError(
+            "Failed to get Ok response from etcd with status code: " + maybe_streamed_response.value().StatusCode()
+        );
+    } else {
+        throw EtcdError(fmt::format("Failed to get streamed response, number of etcd endpoints: {}", endpoints.size()));
+    }
 }
 
 std::shared_ptr<clients::http::Response> ClientImpl::PerformEtcdRequest(
@@ -161,19 +169,20 @@ std::shared_ptr<clients::http::Response> ClientImpl::PerformEtcdRequest(
     auto endpoints = settings_.endpoints;
     utils::Shuffle(endpoints);
 
+    std::shared_ptr<clients::http::Response> response_ptr;
     for (const auto& endpoint : endpoints) {
-        auto response = http_client_.CreateRequest()
-                            .post(url_builder(endpoint), data)
-                            .retry(settings_.attempts)
-                            .timeout(settings_.request_timeout_ms.count())
-                            .perform();
-        LOG_DEBUG() << "Response: " << formats::json::FromString(response->body());
-        if (!ShouldRetry(response->status_code())) {
-            CheckRequestStatusCode(response->status_code());
-            return response;
+        response_ptr = http_client_.CreateRequest()
+                           .post(url_builder(endpoint), data)
+                           .retry(settings_.attempts)
+                           .timeout(settings_.request_timeout_ms.count())
+                           .perform();
+        if (!ShouldRetry(response_ptr->status_code())) {
+            response_ptr->raise_for_status();
+            return response_ptr;
         }
     }
-    throw EtcdError("Failed to get Ok response from etcd");
+
+    throw EtcdError("Failed to get Ok response from etcd with error: " + response_ptr->body());
 }
 
 }  // namespace impl
