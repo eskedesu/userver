@@ -3,19 +3,17 @@
 #include <userver/components/component_base.hpp>
 #include <userver/components/component_config.hpp>
 #include <userver/components/component_context.hpp>
-#include <userver/storages/etcd/client.hpp>
+#include <userver/etcd/client.hpp>
 
 USERVER_NAMESPACE_BEGIN
 
-namespace storages::etcd {
+namespace etcd {
 
 class Component final : public components::ComponentBase {
 public:
-    static constexpr std::string_view kName = "etcd";
+    static constexpr std::string_view kName = "etcd-сlient";
 
     Component(const components::ComponentConfig&, const components::ComponentContext&);
-
-    ~Component() = default;
 
     static yaml_config::Schema GetStaticConfigSchema();
 
@@ -25,6 +23,6 @@ private:
     const ClientPtr etcd_client_ptr_;
 };
 
-}
+}  // namespace etcd
 
 USERVER_NAMESPACE_END
