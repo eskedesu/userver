@@ -17,6 +17,8 @@ public:
 
     void Put(const std::string& key, const std::string& value) override;
 
+    [[nodiscard]] std::optional<std::string> Get(const std::string& key) override;
+
     [[nodiscard]] std::vector<std::string> Range(const std::string& key) override;
 
     void DeleteRange(const std::string& key) override;

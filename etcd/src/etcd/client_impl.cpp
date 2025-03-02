@@ -31,18 +31,25 @@ const std::uint32_t kMaxRetryStatusCode = 599;
 const std::uint32_t kMinGoodStatusCode = 200;
 const std::uint32_t kMaxGoodStatusCode = 299;
 
+const std::string kKeyPrefix = "/etcd/";
+const std::string kLastPrefix = "/etcd0";
+
 std::string BuildPutUrl(const std::string& service_url) { return fmt::format("{}/v3/kv/put", service_url); }
 
 std::string BuildPutData(const std::string& key, const std::string& value) {
+    const auto etcd_key = kKeyPrefix + key;
     return formats::json::ToString(formats::json::MakeObject(
-        "key", crypto::base64::Base64Encode(key), "value", crypto::base64::Base64Encode(value)
+        "key", crypto::base64::Base64Encode(etcd_key), "value", crypto::base64::Base64Encode(value)
     ));
 }
 
 std::string BuildRangeUrl(const std::string& service_url) { return fmt::format("{}/v3/kv/range", service_url); }
 
 std::string BuildRangeData(const std::string& key) {
-    return formats::json::ToString(formats::json::MakeObject("key", crypto::base64::Base64Encode(key)));
+    const auto etcd_key = kKeyPrefix + key;
+    return formats::json::ToString(formats::json::MakeObject(
+        "key", crypto::base64::Base64Encode(etcd_key), "range_end", crypto::base64::Base64Encode(kLastPrefix)
+    ));
 }
 
 std::string BuildDeleteRangeUrl(const std::string& service_url) {
@@ -50,15 +57,17 @@ std::string BuildDeleteRangeUrl(const std::string& service_url) {
 }
 
 std::string BuildDeleteRangeData(const std::string& key) {
-    return formats::json::ToString(formats::json::MakeObject("key", crypto::base64::Base64Encode(key)));
+    const auto etcd_key = kKeyPrefix + key;
+    return formats::json::ToString(formats::json::MakeObject("key", crypto::base64::Base64Encode(etcd_key)));
 }
 
 std::string BuildWatchUrl(const std::string& service_url) { return fmt::format("{}/v3/watch", service_url); }
 
 std::string BuildWatchData(const std::string& key) {
-    return formats::json::ToString(
-        formats::json::MakeObject("create_request", formats::json::MakeObject("key", crypto::base64::Base64Encode(key)))
-    );
+    const auto etcd_key = kKeyPrefix + key;
+    return formats::json::ToString(formats::json::MakeObject(
+        "create_request", formats::json::MakeObject("key", crypto::base64::Base64Encode(etcd_key))
+    ));
 }
 
 bool ShouldRetry(const http::StatusCode status_code) {
@@ -82,10 +91,30 @@ void ClientImpl::Put(const std::string& key, const std::string& value) {
     auto response = PerformEtcdRequest(BuildPutUrl, BuildPutData(key, value));
 }
 
+std::optional<std::string> ClientImpl::Get(const std::string& key) {
+    auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key));
+
+    const auto json_body = formats::json::FromString(response->body());
+    if (!json_body.HasMember("kvs")) {
+        return std::nullopt;
+    }
+    const auto& key_value_list = json_body["kvs"];
+    const auto etcd_key = kKeyPrefix + key;
+    for (const auto& key_value : key_value_list) {
+        if (crypto::base64::Base64Decode(key_value["key"].As<std::string>()) == etcd_key) {
+            return crypto::base64::Base64Decode(key_value["value"].As<std::string>());
+        }
+    }
+    return std::nullopt;
+}
+
 std::vector<std::string> ClientImpl::Range(const std::string& key) {
     auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key));
 
     const auto json_body = formats::json::FromString(response->body());
+    if (!json_body.HasMember("kvs")) {
+        return {};
+    }
     const auto& key_value_list = json_body["kvs"];
     std::vector<std::string> values;
     values.reserve(key_value_list.GetSize());
@@ -113,7 +142,7 @@ WatchListener ClientImpl::StartWatch(const std::string& key) {
         const auto deadline = engine::Deadline::FromDuration(std::chrono::seconds{100'000'000});
         while (stream_response.ReadChunk(body_part, deadline)) {
             const auto watch_response = formats::json::FromString(body_part);
-            LOG_ERROR() << watch_response;
+            LOG_DEBUG() << watch_response;
             if (!watch_response["result"].HasMember("events")) {
                 LOG_INFO() << "No events in watch part response, skipping";
                 continue;
