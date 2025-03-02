@@ -23,6 +23,8 @@ public:
 
     virtual void Put(const std::string& key, const std::string& value) = 0;
 
+    [[nodiscard]] virtual std::optional<std::string> Get(const std::string& key) = 0;
+
     [[nodiscard]] virtual std::vector<std::string> Range(const std::string& key) = 0;
 
     virtual void DeleteRange(const std::string& key) = 0;
