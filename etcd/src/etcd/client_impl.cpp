@@ -49,7 +49,7 @@ std::string BuildRangeUrl(const std::string& service_url) { return fmt::format("
 std::string BuildRangeData(const std::string& key) {
     const auto etcd_key = kKeyPrefix + key;
     return formats::json::ToString(formats::json::MakeObject(
-        "key", crypto::base64::Base64Encode(etcd_key), "range_end", crypto::base64::Base64Encode(kLastPrefix)
+        "key", crypto::base64::Base64Encode(etcd_key), "range_end", crypto::base64::Base64Encode(kLastPossibleKeyPrefix)
     ));
 }
 
