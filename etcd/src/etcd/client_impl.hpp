@@ -35,7 +35,7 @@ private:
         const std::string& data
     );
 
-    void WatchKeyChanges(const std::string key, concurrent::SpscQueue<KeyValueEvent>::Producer producer);
+    void WatchKeyChanges(const std::string& key, concurrent::SpscQueue<KeyValueEvent>::Producer producer);
 
     using WatchQueuePtr = std::shared_ptr<concurrent::SpscQueue<KeyValueEvent>>;
     clients::http::Client& http_client_;
