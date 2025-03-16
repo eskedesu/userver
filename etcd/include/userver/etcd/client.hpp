@@ -27,7 +27,7 @@ public:
 
     [[nodiscard]] virtual std::vector<std::string> Range(const std::string& key) = 0;
 
-    virtual void DeleteRange(const std::string& key) = 0;
+    virtual void Delete(const std::string& key) = 0;
 
     virtual WatchListener StartWatch(const std::string& key) = 0;
 };

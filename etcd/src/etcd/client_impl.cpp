@@ -9,6 +9,7 @@
 #include <userver/clients/http/streamed_response.hpp>
 #include <userver/crypto/base64.hpp>
 #include <userver/dynamic_config/value.hpp>
+#include <userver/engine/sleep.hpp>
 #include <userver/etcd/exceptions.hpp>
 #include <userver/formats/json/inline.hpp>
 #include <userver/formats/parse/common_containers.hpp>
@@ -32,7 +33,7 @@ const std::uint32_t kMinGoodStatusCode = 200;
 const std::uint32_t kMaxGoodStatusCode = 299;
 
 const std::string kKeyPrefix = "/etcd/";
-const std::string kLastPrefix = "/etcd0";
+const std::string kLastPossibleKeyPrefix = "/etcd0";
 
 std::string BuildPutUrl(const std::string& service_url) { return fmt::format("{}/v3/kv/put", service_url); }
 
@@ -52,11 +53,9 @@ std::string BuildRangeData(const std::string& key) {
     ));
 }
 
-std::string BuildDeleteRangeUrl(const std::string& service_url) {
-    return fmt::format("{}/v3/kv/deleterange", service_url);
-}
+std::string BuildDeleteUrl(const std::string& service_url) { return fmt::format("{}/v3/kv/deleterange", service_url); }
 
-std::string BuildDeleteRangeData(const std::string& key) {
+std::string BuildDeleteData(const std::string& key) {
     const auto etcd_key = kKeyPrefix + key;
     return formats::json::ToString(formats::json::MakeObject("key", crypto::base64::Base64Encode(etcd_key)));
 }
@@ -74,7 +73,7 @@ bool ShouldRetry(const http::StatusCode status_code) {
     return kMinRetryStatusCode <= status_code && status_code <= kMaxRetryStatusCode;
 }
 
-void CheckRequestStatusCode(const http::StatusCode status_code) {
+void CheckResponseStatusCode(const http::StatusCode status_code) {
     if (status_code < kMinGoodStatusCode || kMaxGoodStatusCode < status_code) {
         throw EtcdError(fmt::format("Got bad status code from etcd: {}", status_code));
     }
@@ -124,40 +123,20 @@ std::vector<std::string> ClientImpl::Range(const std::string& key) {
     return values;
 }
 
-void ClientImpl::DeleteRange(const std::string& key) {
-    auto response = PerformEtcdRequest(BuildDeleteRangeUrl, BuildDeleteRangeData(key));
+void ClientImpl::Delete(const std::string& key) {
+    auto response = PerformEtcdRequest(BuildDeleteUrl, BuildDeleteData(key));
 }
 
 WatchListener ClientImpl::StartWatch(const std::string& key) {
-    const auto data = BuildWatchData(key);
-    auto stream_response = PerformStreamedEtcdRequest(BuildWatchUrl, BuildWatchData(key));
     auto queue = concurrent::SpscQueue<KeyValueEvent>::Create();
 
-    watch_queues_lock_.lock();
-    watch_queues_.push_back(queue);
-    watch_queues_lock_.unlock();
+    auto watch_queues_ptr = watch_queues_.Lock();
+    watch_queues_ptr->push_back(queue);
 
-    utils::Async("watch task", [stream_response = std::move(stream_response), produсer = queue->GetProducer()] mutable {
-        std::string body_part;
-        const auto deadline = engine::Deadline::FromDuration(std::chrono::seconds{100'000'000});
-        while (stream_response.ReadChunk(body_part, deadline)) {
-            const auto watch_response = formats::json::FromString(body_part);
-            LOG_DEBUG() << watch_response;
-            if (!watch_response["result"].HasMember("events")) {
-                LOG_INFO() << "No events in watch part response, skipping";
-                continue;
-            }
-            for (const auto& event : watch_response["result"]["events"]) {
-                if (!event.HasMember("kv")) {
-                    continue;
-                }
-                if (!produсer.PushNoblock(event["kv"].As<KeyValueEvent>())) {
-                    LOG_ERROR() << "PushNoblock failed";
-                    return;
-                };
-            }
-        }
+    utils::Async("watch task", [&key, producer = queue->GetProducer(), this] mutable {
+        this->WatchKeyChanges(key, std::move(producer));
     }).Detach();
+
     return WatchListener{.consumer = queue->GetConsumer()};
 }
 
@@ -178,7 +157,7 @@ clients::http::StreamedResponse ClientImpl::PerformStreamedEtcdRequest(
                                       .async_perform_stream_body(queue);
         auto& streamed_response = maybe_streamed_response.value();
         if (!ShouldRetry(streamed_response.StatusCode())) {
-            CheckRequestStatusCode(streamed_response.StatusCode());
+            CheckResponseStatusCode(streamed_response.StatusCode());
             return std::move(streamed_response);
         }
     }
@@ -212,6 +191,32 @@ std::shared_ptr<clients::http::Response> ClientImpl::PerformEtcdRequest(
     }
 
     throw EtcdError("Failed to get Ok response from etcd with error: " + response_ptr->body());
+}
+
+void ClientImpl::WatchKeyChanges(const std::string& key, concurrent::SpscQueue<KeyValueEvent>::Producer producer) {
+    auto stream_response = PerformStreamedEtcdRequest(BuildWatchUrl, BuildWatchData(key));
+
+    std::string body_part;
+    while (stream_response.ReadChunk(
+        body_part, engine::Deadline::FromTimePoint(std::chrono::system_clock::time_point::max())
+    )) {
+        const auto watch_response = formats::json::FromString(body_part);
+        LOG_DEBUG() << watch_response;
+        if (!watch_response["result"].HasMember("events")) {
+            LOG_DEBUG() << "No events in watch part response, skipping";
+            continue;
+        }
+        for (const auto& event : watch_response["result"]["events"]) {
+            if (!event.HasMember("kv")) {
+                continue;
+            }
+            LOG_DEBUG() << "Got event with kv: " << event["kv"];
+            if (!producer.Push(event["kv"].As<KeyValueEvent>())) {
+                LOG_ERROR() << "Could not push to queue, aborting task";
+                return;
+            };
+        }
+    }
 }
 
 }  // namespace impl

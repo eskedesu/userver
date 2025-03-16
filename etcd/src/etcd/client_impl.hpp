@@ -1,6 +1,7 @@
 #pragma once
 
 #include <userver/concurrent/queue.hpp>
+#include <userver/concurrent/variable.hpp>
 #include <userver/engine/mutex.hpp>
 #include <userver/etcd/client.hpp>
 #include <userver/etcd/settings.hpp>
@@ -21,7 +22,7 @@ public:
 
     [[nodiscard]] std::vector<std::string> Range(const std::string& key) override;
 
-    void DeleteRange(const std::string& key) override;
+    void Delete(const std::string& key) override;
 
     WatchListener StartWatch(const std::string& key) override;
 
@@ -34,9 +35,11 @@ private:
         const std::string& data
     );
 
+    void WatchKeyChanges(const std::string key, concurrent::SpscQueue<KeyValueEvent>::Producer producer);
+
+    using WatchQueuePtr = std::shared_ptr<concurrent::SpscQueue<KeyValueEvent>>;
     clients::http::Client& http_client_;
-    engine::Mutex watch_queues_lock_;
-    std::vector<std::shared_ptr<concurrent::SpscQueue<KeyValueEvent>>> watch_queues_;
+    concurrent::Variable<std::vector<WatchQueuePtr>> watch_queues_;
     const ClientSettings settings_;
 };
 
