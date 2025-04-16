@@ -7,10 +7,10 @@ USERVER_NAMESPACE_BEGIN
 
 namespace etcd {
 
-KeyValueEvent WatchListener::GetEvent() {
-    KeyValueEvent event;
+KeyValueState WatchListener::GetEvent() {
+    KeyValueState event;
     if (!consumer.Pop(event)) {
-        throw EtcdError("Consumer pop failed");
+        throw EtcdError("Consumer pop failed while trying to get etcd key-value event");
     }
     return event;
 }
@@ -19,11 +19,11 @@ KeyValueEvent WatchListener::GetEvent() {
 
 namespace formats::parse {
 
-etcd::KeyValueEvent Parse(const formats::json::Value& value, To<etcd::KeyValueEvent>) {
-    return etcd::KeyValueEvent{
-        .key = crypto::base64::Base64Decode(value["key"].As<std::string>()),
-        .value = crypto::base64::Base64Decode(value["value"].As<std::string>()),
-        .version = std::stoi(value["version"].As<std::string>()),
+etcd::KeyValueState Parse(const formats::json::Value& value, To<etcd::KeyValueState>) {
+    return etcd::KeyValueState{
+        /* .key = */ crypto::base64::Base64Decode(value["key"].As<std::string>()),
+        /* .value = */ crypto::base64::Base64Decode(value["value"].As<std::string>()),
+        /* .version = */ std::stoi(value["version"].As<std::string>()),
     };
 }
 

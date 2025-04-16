@@ -9,23 +9,23 @@ USERVER_NAMESPACE_BEGIN
 
 namespace etcd {
 
-struct KeyValueEvent final {
+struct KeyValueState final {
     std::string key;
     std::string value;
     std::int32_t version;
 };
 
 struct WatchListener final {
-    concurrent::SpscQueue<KeyValueEvent>::Consumer consumer;
+    concurrent::SpscQueue<KeyValueState>::Consumer consumer;
 
-    KeyValueEvent GetEvent();
+    KeyValueState GetEvent();
 };
 
 }  // namespace etcd
 
 namespace formats::parse {
 
-etcd::KeyValueEvent Parse(const formats::json::Value& value, To<etcd::KeyValueEvent>);
+etcd::KeyValueState Parse(const formats::json::Value& value, To<etcd::KeyValueState>);
 
 }
 

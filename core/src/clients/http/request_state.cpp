@@ -732,6 +732,14 @@ void RequestState::SetEasyTimeout(std::chrono::milliseconds timeout) {
     easy().set_connect_timeout_ms(timeout.count());
 }
 
+void RequestState::SetEasyConnectTimeout(std::chrono::milliseconds timeout) {
+    UASSERT_MSG(
+        timeout >= std::chrono::seconds{0}, fmt::format("timeout_ms < 0 ({})), uninitialized variable?", timeout)
+    );
+    easy().set_timeout_ms(timeout.count());
+    easy().set_connect_timeout_ms(timeout.count());
+}
+
 engine::Deadline RequestState::GetDeadline() const noexcept { return deadline_; }
 
 bool RequestState::IsDeadlineExpired() const noexcept { return deadline_expired_; }

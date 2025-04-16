@@ -20,14 +20,14 @@ public:
 
     [[nodiscard]] std::optional<std::string> Get(const std::string& key) override;
 
-    [[nodiscard]] std::vector<std::string> Range(const std::string& key) override;
+    [[nodiscard]] std::vector<std::string> Range(const std::string& key_prefix) override;
 
     void Delete(const std::string& key) override;
 
     WatchListener StartWatch(const std::string& key) override;
 
 private:
-    [[nodiscard]] std::shared_ptr<clients::http::Response>
+    std::shared_ptr<clients::http::Response>
     PerformEtcdRequest(const std::function<std::string(const std::string&)>& url_builder, const std::string& data);
 
     [[nodiscard]] clients::http::StreamedResponse PerformStreamedEtcdRequest(
@@ -35,9 +35,9 @@ private:
         const std::string& data
     );
 
-    void WatchKeyChanges(const std::string& key, concurrent::SpscQueue<KeyValueEvent>::Producer producer);
+    void WatchKeyChanges(const std::string& key, concurrent::SpscQueue<KeyValueState>::Producer producer);
 
-    using WatchQueuePtr = std::shared_ptr<concurrent::SpscQueue<KeyValueEvent>>;
+    using WatchQueuePtr = std::shared_ptr<concurrent::SpscQueue<KeyValueState>>;
     clients::http::Client& http_client_;
     concurrent::Variable<std::vector<WatchQueuePtr>> watch_queues_;
     const ClientSettings settings_;
