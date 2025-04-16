@@ -14,6 +14,7 @@ struct ClientSettings final {
     const std::vector<std::string> endpoints;
     const std::uint32_t attempts;
     const std::chrono::microseconds request_timeout_ms;
+    const std::chrono::microseconds watch_timeout_ms;
 };
 
 }  // namespace etcd

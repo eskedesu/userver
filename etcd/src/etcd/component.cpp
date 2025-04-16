@@ -27,7 +27,7 @@ properties:
         description: Etcd endpoints
         items:
             type: string
-            description: host
+            description: host, e.g. http://localhost:2379
     attempts:
         type: integer
         description: >

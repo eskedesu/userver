@@ -130,6 +130,7 @@ public:
 
     void SetLoggedUrl(std::string url);
     void SetEasyTimeout(std::chrono::milliseconds timeout);
+    void SetEasyConnectTimeout(std::chrono::milliseconds timeout);
 
     void SetTracingManager(const tracing::TracingManagerBase&);
 

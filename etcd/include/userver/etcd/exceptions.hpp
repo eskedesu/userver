@@ -14,6 +14,12 @@ public:
     using std::runtime_error::runtime_error;
 };
 
+/// @brief Etcd request error
+class EtcdRequestError : public EtcdError {
+public:
+    using EtcdError::EtcdError;
+};
+
 }  // namespace etcd
 
 USERVER_NAMESPACE_END

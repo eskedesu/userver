@@ -11,6 +11,7 @@ namespace {
 
 constexpr std::uint32_t kDefaultAttempts{3};
 constexpr std::chrono::milliseconds kDefaultRequestTimeout{1'000};
+constexpr std::chrono::milliseconds kDefaultWatchTimeout{1'000'000};
 
 }  // namespace
 
@@ -18,11 +19,12 @@ constexpr std::chrono::milliseconds kDefaultRequestTimeout{1'000};
 
 namespace formats::parse {
 
-etcd::ClientSettings Parse(const yaml_config::YamlConfig& cofig, To<etcd::ClientSettings>) {
+etcd::ClientSettings Parse(const yaml_config::YamlConfig& config, To<etcd::ClientSettings>) {
     return etcd::ClientSettings{
-        .endpoints = cofig["endpoints"].As<std::vector<std::string>>(),
-        .attempts = cofig["attempts"].As<std::uint32_t>(etcd::kDefaultAttempts),
-        .request_timeout_ms = cofig["request_timeout_ms"].As<std::chrono::milliseconds>(etcd::kDefaultRequestTimeout),
+        .endpoints = config["endpoints"].As<std::vector<std::string>>(),
+        .attempts = config["attempts"].As<std::uint32_t>(etcd::kDefaultAttempts),
+        .request_timeout_ms = config["request_timeout_ms"].As<std::chrono::milliseconds>(etcd::kDefaultRequestTimeout),
+        .watch_timeout_ms = config["watch_timeout_ms"].As<std::chrono::milliseconds>(etcd::kDefaultWatchTimeout),
     };
 }
 

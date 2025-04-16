@@ -87,7 +87,19 @@ ClientImpl::ClientImpl(clients::http::Client& http_client, ClientSettings settin
     : http_client_(http_client), settings_(settings) {}
 
 void ClientImpl::Put(const std::string& key, const std::string& value) {
-    auto response = PerformEtcdRequest(BuildPutUrl, BuildPutData(key, value));
+    try {
+        PerformEtcdRequest(BuildPutUrl, BuildPutData(key, value));
+    } catch (const clients::http::HttpClientException& exception) {
+        throw EtcdRequestError(fmt::format("Request to etcd was unsuccessful: {}", exception.what()));
+    }
+}
+
+void ClientImpl::Delete(const std::string& key) {
+    try {
+        PerformEtcdRequest(BuildDeleteUrl, BuildDeleteData(key));
+    } catch (const clients::http::HttpClientException& exception) {
+        throw EtcdRequestError(fmt::format("Request to etcd was unsuccessful: {}", exception.what()));
+    }
 }
 
 std::optional<std::string> ClientImpl::Get(const std::string& key) {
@@ -107,8 +119,8 @@ std::optional<std::string> ClientImpl::Get(const std::string& key) {
     return std::nullopt;
 }
 
-std::vector<std::string> ClientImpl::Range(const std::string& key) {
-    auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key));
+std::vector<std::string> ClientImpl::Range(const std::string& key_prefix) {
+    auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key_prefix));
 
     const auto json_body = formats::json::FromString(response->body());
     if (!json_body.HasMember("kvs")) {
@@ -123,21 +135,17 @@ std::vector<std::string> ClientImpl::Range(const std::string& key) {
     return values;
 }
 
-void ClientImpl::Delete(const std::string& key) {
-    auto response = PerformEtcdRequest(BuildDeleteUrl, BuildDeleteData(key));
-}
-
 WatchListener ClientImpl::StartWatch(const std::string& key) {
-    auto queue = concurrent::SpscQueue<KeyValueEvent>::Create();
+    auto queue = concurrent::SpscQueue<KeyValueState>::Create();
 
     auto watch_queues_ptr = watch_queues_.Lock();
     watch_queues_ptr->push_back(queue);
 
-    utils::Async("watch task", [&key, producer = queue->GetProducer(), this] mutable {
+    utils::Async("watch task", [&key, producer = queue->GetProducer(), this]() mutable {
         this->WatchKeyChanges(key, std::move(producer));
     }).Detach();
 
-    return WatchListener{.consumer = queue->GetConsumer()};
+    return WatchListener{queue->GetConsumer()};
 }
 
 clients::http::StreamedResponse ClientImpl::PerformStreamedEtcdRequest(
@@ -153,7 +161,7 @@ clients::http::StreamedResponse ClientImpl::PerformStreamedEtcdRequest(
         maybe_streamed_response = http_client_.CreateRequest()
                                       .post(url_builder(endpoint), data)
                                       .retry(settings_.attempts)
-                                      .timeout(1'000'000'000)
+                                      .timeout(settings_.watch_timeout_ms.count())
                                       .async_perform_stream_body(queue);
         auto& streamed_response = maybe_streamed_response.value();
         if (!ShouldRetry(streamed_response.StatusCode())) {
@@ -166,7 +174,7 @@ clients::http::StreamedResponse ClientImpl::PerformStreamedEtcdRequest(
             "Failed to get Ok response from etcd with status code: " + maybe_streamed_response.value().StatusCode()
         );
     } else {
-        throw EtcdError(fmt::format("Failed to get streamed response, number of etcd endpoints: {}", endpoints.size()));
+        throw EtcdError("Failed to get streamed response, number of etcd endpoints: " + endpoints.size());
     }
 }
 
@@ -193,25 +201,26 @@ std::shared_ptr<clients::http::Response> ClientImpl::PerformEtcdRequest(
     throw EtcdError("Failed to get Ok response from etcd with error: " + response_ptr->body());
 }
 
-void ClientImpl::WatchKeyChanges(const std::string& key, concurrent::SpscQueue<KeyValueEvent>::Producer producer) {
+void ClientImpl::WatchKeyChanges(const std::string& key, concurrent::SpscQueue<KeyValueState>::Producer producer) {
     auto stream_response = PerformStreamedEtcdRequest(BuildWatchUrl, BuildWatchData(key));
 
     std::string body_part;
     while (stream_response.ReadChunk(
-        body_part, engine::Deadline::FromTimePoint(std::chrono::system_clock::time_point::max())
+        body_part, engine::Deadline()
     )) {
         const auto watch_response = formats::json::FromString(body_part);
-        LOG_DEBUG() << watch_response;
+        LOG_DEBUG() << "Got folowing chunk from etcd watch handler: " << watch_response;
         if (!watch_response["result"].HasMember("events")) {
             LOG_DEBUG() << "No events in watch part response, skipping";
             continue;
         }
         for (const auto& event : watch_response["result"]["events"]) {
             if (!event.HasMember("kv")) {
+                LOG_DEBUG() << "Event is not key value change, skipping";
                 continue;
             }
             LOG_DEBUG() << "Got event with kv: " << event["kv"];
-            if (!producer.Push(event["kv"].As<KeyValueEvent>())) {
+            if (!producer.Push(event["kv"].As<KeyValueState>())) {
                 LOG_ERROR() << "Could not push to queue, aborting task";
                 return;
             };
