@@ -1,5 +1,8 @@
 #pragma once
 
+/// @file userver/etcd/exceptions.hpp
+/// @brief Exceptions thrown by etcd client
+
 #include <string>
 
 #include <stdexcept>
@@ -14,7 +17,7 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-/// @brief Etcd request error
+/// @brief Error during a request to etcd
 class EtcdRequestError : public EtcdError {
 public:
     using EtcdError::EtcdError;

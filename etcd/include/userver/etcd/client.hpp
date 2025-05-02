@@ -20,7 +20,7 @@ USERVER_NAMESPACE_BEGIN
 
 namespace etcd {
 
-/// @brief Etcd client that uses http client inside
+/// @brief Etcd client implemented using http client
 class Client {
 public:
     virtual ~Client() = default;

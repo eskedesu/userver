@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(userver-samples-multipart_service CXX)
+project(userver-samples-etcd_service CXX)
 
 find_package(userver COMPONENTS core etcd REQUIRED)
 
