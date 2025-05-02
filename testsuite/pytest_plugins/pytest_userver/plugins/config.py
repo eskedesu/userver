@@ -406,7 +406,7 @@ def allowed_url_prefixes_extra() -> typing.List[str]:
 
     @ingroup userver_testsuite_fixtures
     """
-    return ["http://localhost:2379"]
+    return []
 
 
 @pytest.fixture(scope='session')
