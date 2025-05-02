@@ -1,5 +1,8 @@
 #pragma once
 
+/// @file userver/etcd/settings.hpp
+/// @brief etcd client settings
+
 #include <chrono>
 #include <string>
 #include <vector>
@@ -10,10 +13,15 @@ USERVER_NAMESPACE_BEGIN
 
 namespace etcd {
 
+/// @brief Etcd client settigs struct
 struct ClientSettings final {
+    // Etcd endpoints to which client make HTTP requests 
     const std::vector<std::string> endpoints;
+    // Number of attempts to each endpoint, on failed attempts client randomly moves to another endpoint
     const std::uint32_t attempts;
+    // Timeout for all HTTP requests to etcd except watch request
     const std::chrono::microseconds request_timeout_ms;
+    // Timeout for watch HTTP request. It's a stremed request, so it is used also as a connection timeout, so it should not be too short
     const std::chrono::microseconds watch_timeout_ms;
 };
 

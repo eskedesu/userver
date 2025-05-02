@@ -120,6 +120,7 @@ std::optional<std::string> ClientImpl::Get(const std::string& key) {
 }
 
 std::vector<std::string> ClientImpl::Range(const std::string& key_prefix) {
+
     auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key_prefix));
 
     const auto json_body = formats::json::FromString(response->body());
@@ -146,6 +147,28 @@ WatchListener ClientImpl::StartWatch(const std::string& key) {
     }).Detach();
 
     return WatchListener{queue->GetConsumer()};
+}
+
+std::shared_ptr<clients::http::Response> ClientImpl::PerformEtcdRequest(
+    const std::function<std::string(const std::string&)>& url_builder,
+    const std::string& data
+) {
+    auto endpoints = settings_.endpoints;
+    utils::Shuffle(endpoints);
+
+    std::shared_ptr<clients::http::Response> response_ptr;
+    for (const auto& endpoint : endpoints) {
+        response_ptr = http_client_.CreateRequest()
+                           .post(url_builder(endpoint), data)
+                           .retry(settings_.attempts)
+                           .timeout(settings_.request_timeout_ms.count())
+                           .perform();
+        if (!ShouldRetry(response_ptr->status_code())) {
+            CheckResponseStatusCode(response_ptr->status_code());
+            return response_ptr;
+        }
+    }
+    throw EtcdError("Failed to get Ok response from etcd with error: " + response_ptr->body());
 }
 
 clients::http::StreamedResponse ClientImpl::PerformStreamedEtcdRequest(
@@ -176,29 +199,6 @@ clients::http::StreamedResponse ClientImpl::PerformStreamedEtcdRequest(
     } else {
         throw EtcdError("Failed to get streamed response, number of etcd endpoints: " + endpoints.size());
     }
-}
-
-std::shared_ptr<clients::http::Response> ClientImpl::PerformEtcdRequest(
-    const std::function<std::string(const std::string&)>& url_builder,
-    const std::string& data
-) {
-    auto endpoints = settings_.endpoints;
-    utils::Shuffle(endpoints);
-
-    std::shared_ptr<clients::http::Response> response_ptr;
-    for (const auto& endpoint : endpoints) {
-        response_ptr = http_client_.CreateRequest()
-                           .post(url_builder(endpoint), data)
-                           .retry(settings_.attempts)
-                           .timeout(settings_.request_timeout_ms.count())
-                           .perform();
-        if (!ShouldRetry(response_ptr->status_code())) {
-            response_ptr->raise_for_status();
-            return response_ptr;
-        }
-    }
-
-    throw EtcdError("Failed to get Ok response from etcd with error: " + response_ptr->body());
 }
 
 void ClientImpl::WatchKeyChanges(const std::string& key, concurrent::SpscQueue<KeyValueState>::Producer producer) {

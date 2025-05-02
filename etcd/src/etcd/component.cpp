@@ -24,18 +24,23 @@ additionalProperties: false
 properties:
     endpoints:
         type: array
-        description: Etcd endpoints
+        description: Etcd endpoints to which client make HTTP requests
         items:
             type: string
-            description: host, e.g. http://localhost:2379
+            description: Etcd endpoint, e.g. http://localhost:2379
     attempts:
         type: integer
         description: >
-            Number of attempts per one endpoints, total number of attempts is number of endpoints times attempts
+            Number of attempts to each endpoint, on failed attempts client randomly moves to another endpoint
         minimum: 1
     request_timeout_ms:
         type: integer
-        description: Number of miliseconds between request attempts
+        description: Timeout for all HTTP requests to etcd except watch request
+        minimum: 1
+    watch_timeout_ms:
+        type: integer
+        description: >
+            Timeout for watch HTTP request. It's a stremed request, so it is used also as a connection timeout, so it should not be too short
         minimum: 1
 )");
 }
