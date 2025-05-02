@@ -539,7 +539,7 @@ def userver_config_http_client(
             return
         http_client = components['http-client'] or {}
         http_client['testsuite-enabled'] = True
-        # http_client['testsuite-timeout'] = '30s'
+        http_client['testsuite-timeout'] = '10s'
 
         allowed_urls = [mockserver_info.base_url]
         if mockserver_ssl_info:
