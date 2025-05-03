@@ -1,13 +1,13 @@
 #include <etcd/client_impl.hpp>
+#include <userver/crypto/base64.hpp>
 #include <userver/etcd/client.hpp>
 #include <userver/etcd/settings.hpp>
-#include <userver/utest/utest.hpp>
-#include <userver/utils/async.hpp>
-#include <userver/utest/http_server_mock.hpp>
-#include <userver/utest/http_client.hpp>
 #include <userver/formats/json/inline.hpp>
 #include <userver/formats/json/value_builder.hpp>
-#include <userver/crypto/base64.hpp>
+#include <userver/utest/http_client.hpp>
+#include <userver/utest/http_server_mock.hpp>
+#include <userver/utest/utest.hpp>
+#include <userver/utils/async.hpp>
 
 USERVER_NAMESPACE_BEGIN
 
@@ -15,7 +15,7 @@ namespace {
 
 utest::HttpServerMock::HttpResponse EtcdRequestProcessor(const utest::HttpServerMock::HttpRequest& request) {
     static std::map<std::string, std::string> storage;
-    
+
     EXPECT_EQ(request.method, clients::http::HttpMethod::kPost);
     const auto request_body = formats::json::FromString(request.body);
     formats::json::ValueBuilder response_body_value_builder;
@@ -32,26 +32,21 @@ utest::HttpServerMock::HttpResponse EtcdRequestProcessor(const utest::HttpServer
 
         response_body_value_builder["kvs"] = formats::json::MakeArray();
         while (first_key != last_key) {
-            response_body_value_builder["kvs"].PushBack(
-                formats::json::MakeObject(
-                    "key",
-                    crypto::base64::Base64Encode(first_key->first),
-                    "value",
-                    crypto::base64::Base64Encode(first_key->second)
-                )
-            );
+            response_body_value_builder["kvs"].PushBack(formats::json::MakeObject(
+                "key",
+                crypto::base64::Base64Encode(first_key->first),
+                "value",
+                crypto::base64::Base64Encode(first_key->second)
+            ));
             ++first_key;
         }
     } else if (request.path == "/v3/kv/deleterange") {
         const auto key = crypto::base64::Base64Decode(request_body["key"].As<std::string>());
         storage.erase(key);
     }
-    
+
     return utest::HttpServerMock::HttpResponse{
-        200,
-        clients::http::Headers{},
-        formats::json::ToString(response_body_value_builder.ExtractValue())
-    };
+        200, clients::http::Headers{}, formats::json::ToString(response_body_value_builder.ExtractValue())};
 }
 
 }  // namespace

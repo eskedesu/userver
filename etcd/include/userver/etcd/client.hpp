@@ -32,13 +32,13 @@ public:
     virtual void Put(const std::string& key, const std::string& value) = 0;
 
     /// @brief Gets a value from etcd cluster by a key.
-    /// If there is no value with such key, returns std::nullopt 
+    /// If there is no value with such key, returns std::nullopt
     ///
     [[nodiscard]] virtual std::optional<std::string> Get(const std::string& key) = 0;
 
     /// @brief Retrieves values from the etcd cluster,
     /// the keys of which match the passed prefix.
-    /// If there is no value with such key, returns std::nullopt 
+    /// If there is no value with such key, returns std::nullopt
     ///
     [[nodiscard]] virtual std::vector<std::string> Range(const std::string& key_prefix) = 0;
 
