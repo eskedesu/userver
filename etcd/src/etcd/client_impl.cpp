@@ -120,7 +120,6 @@ std::optional<std::string> ClientImpl::Get(const std::string& key) {
 }
 
 std::vector<std::string> ClientImpl::Range(const std::string& key_prefix) {
-
     auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key_prefix));
 
     const auto json_body = formats::json::FromString(response->body());
@@ -205,9 +204,7 @@ void ClientImpl::WatchKeyChanges(const std::string& key, concurrent::SpscQueue<K
     auto stream_response = PerformStreamedEtcdRequest(BuildWatchUrl, BuildWatchData(key));
 
     std::string body_part;
-    while (stream_response.ReadChunk(
-        body_part, engine::Deadline()
-    )) {
+    while (stream_response.ReadChunk(body_part, engine::Deadline())) {
         const auto watch_response = formats::json::FromString(body_part);
         LOG_DEBUG() << "Got folowing chunk from etcd watch handler: " << watch_response;
         if (!watch_response["result"].HasMember("events")) {
