@@ -31,7 +31,7 @@ namespace etcd {
 
 class Component final : public components::ComponentBase {
 public:
-    static constexpr std::string_view kName = "etcd-сlient";
+    static constexpr std::string_view kName = "etcd-client";
 
     Component(const components::ComponentConfig&, const components::ComponentContext&);
 

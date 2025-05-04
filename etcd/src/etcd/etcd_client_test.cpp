@@ -3,6 +3,7 @@
 #include <userver/etcd/client.hpp>
 #include <userver/etcd/settings.hpp>
 #include <userver/formats/json/inline.hpp>
+#include <userver/formats/json/serialize.hpp>
 #include <userver/formats/json/value_builder.hpp>
 #include <userver/utest/http_client.hpp>
 #include <userver/utest/http_server_mock.hpp>
@@ -60,6 +61,7 @@ UTEST(Etcd, TestKeyValueStorage) {
             {mock_server.GetBaseUrl()},
             2,
             std::chrono::milliseconds{500},
+            std::chrono::milliseconds{100'000},
         }
     );
 
@@ -88,6 +90,7 @@ UTEST(Etcd, TestRange) {
             {mock_server.GetBaseUrl()},
             2,
             std::chrono::milliseconds{500},
+            std::chrono::milliseconds{100'000},
         }
     );
 
