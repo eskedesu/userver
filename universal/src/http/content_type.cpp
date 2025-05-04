@@ -2,15 +2,17 @@
 
 #include <cstdlib>
 #include <functional>
-#include <iostream>
+#include <ostream>
 
 #include <fmt/compile.h>
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 #include <boost/functional/hash.hpp>
 
+#include <userver/logging/log_helper.hpp>
 #include <userver/utils/assert.hpp>
 #include <userver/utils/str_icase.hpp>
+#include <userver/utils/string_literal.hpp>
 #include <userver/utils/text_light.hpp>
 
 USERVER_NAMESPACE_BEGIN
@@ -21,12 +23,13 @@ namespace {
 constexpr int kMaxQuality = 1000;
 const std::string kDefaultCharset = "UTF-8";
 
-const std::string kOwsChars = " \t";
-const std::string kTypeTokenInvalidChars = kOwsChars + '/';
-const std::string kCharsetParamName = "charset";
-const std::string kQualityParamName = "q";
+constexpr utils::StringLiteral kOwsChars = " \t";
+constexpr utils::StringLiteral kTypeTokenInvalidChars = " \t/";  // kOwsChars + '/'
+constexpr utils::StringLiteral kCharsetParamName = "charset";
+constexpr utils::StringLiteral kQualityParamName = "q";
+constexpr utils::StringLiteral kBoundaryParamName = "boundary";
 
-const std::string kTokenAny = "*";
+constexpr utils::StringLiteral kTokenAny = "*";
 
 std::string_view LtrimOws(std::string_view view) {
     const auto first_pchar_pos = view.find_first_not_of(kOwsChars);
@@ -125,6 +128,8 @@ ContentType::ContentType(std::string_view unparsed) : quality_(kMaxQuality) {
             }
         } else if (utils::StrIcaseEqual()(kQualityParamName, param_name)) {
             quality_ = ParseQuality(RtrimOws(unparsed.substr(0, delim_pos)));
+        } else if (utils::StrIcaseEqual()(kBoundaryParamName, param_name)) {
+            boundary_ = unparsed.substr(0, delim_pos);
         }
     }
 
@@ -162,6 +167,8 @@ bool ContentType::DoesAccept(const ContentType& other) const {
     }
     return icase_equal(Charset(), other.Charset());
 }
+
+const std::string& ContentType::Boundary() const { return boundary_; }
 
 std::string ContentType::ToString() const { return string_representation_; }
 
@@ -231,7 +238,13 @@ size_t ContentTypeHash::operator()(const ContentType& content_type) const {
     return hash;
 }
 
-std::ostream& operator<<(std::ostream& os, const ContentType& content_type) { return os << content_type.ToString(); }
+std::ostream& operator<<(std::ostream& os, const ContentType& content_type) {
+    return os << content_type.string_representation_;
+}
+
+logging::LogHelper& operator<<(logging::LogHelper& lh, const ContentType& content_type) {
+    return lh << content_type.string_representation_;
+}
 
 namespace content_type {
 

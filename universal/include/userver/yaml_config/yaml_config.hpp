@@ -34,18 +34,18 @@ using ParseException = formats::yaml::ParseException;
 /// @snippet universal/src/yaml_config/yaml_config_test.cpp  sample vars
 /// Then the result of `yaml["some_element"]["some"].As<int>()` is `42`.
 ///
-/// If YAML key ends on '#env' and the mode is YamlConfig::Mode::kEnvAllowed
+/// If YAML key ends on `#env` and the mode is YamlConfig::Mode::kEnvAllowed
 /// or YamlConfig::Mode::kEnvAndFileAllowed,
 /// then the value of the key is searched in
 /// environment variables of the process and returned as a value. For example:
 /// @snippet universal/src/yaml_config/yaml_config_test.cpp  sample env
 ///
-/// If YAML key ends on '#file' and the mode is
+/// If YAML key ends on `#file` and the mode is
 /// YamlConfig::Mode::kEnvAndFileAllowed, then the value of the key is the
 /// content of specified YAML parsed file. For example:
 /// @snippet universal/src/yaml_config/yaml_config_test.cpp  sample read_file
 ///
-/// If YAML key ends on '#fallback', then the value of the key is used as a
+/// If YAML key ends on `#fallback`, then the value of the key is used as a
 /// fallback for environment, file and `$` variables. For example for the
 /// following YAML with YamlConfig::Mode::kEnvAndFileAllowed:
 /// @snippet universal/src/yaml_config/yaml_config_test.cpp  sample multiple
@@ -208,6 +208,7 @@ private:
     friend uint64_t Parse(const YamlConfig& value, formats::parse::To<uint64_t>);
     friend double Parse(const YamlConfig& value, formats::parse::To<double>);
     friend std::string Parse(const YamlConfig& value, formats::parse::To<std::string>);
+    friend formats::yaml::Value Parse(const YamlConfig& value, formats::parse::To<formats::yaml::Value>);
 };
 
 using Value = YamlConfig;
@@ -269,8 +270,15 @@ std::chrono::seconds Parse(const YamlConfig& value, formats::parse::To<std::chro
 std::chrono::milliseconds Parse(const YamlConfig& value, formats::parse::To<std::chrono::milliseconds>);
 
 /// @brief Converts YAML to JSON
-/// @throws formats::json::Value::Exception if `value.IsMissing()`
+/// @throws yaml_config::YamlConfig::Exception if `value.IsMissing()`
 formats::json::Value Parse(const YamlConfig& value, formats::parse::To<formats::json::Value>);
+
+/// @brief Converts YAML to YAML. Returns self
+inline YamlConfig Parse(const YamlConfig& value, formats::parse::To<YamlConfig>) { return value; }
+
+/// @brief Flattens a YamlConfig, applying all of its special syntax
+/// @throws yaml_config::YamlConfig::Exception if `value.IsMissing()`
+formats::yaml::Value Parse(const YamlConfig& value, formats::parse::To<formats::yaml::Value>);
 
 }  // namespace yaml_config
 

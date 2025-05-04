@@ -9,12 +9,41 @@ namespace ugrpc::impl {
 
 namespace {
 
+[[maybe_unused]] bool HasDebugRedactOption([[maybe_unused]] const google::protobuf::FieldDescriptor& field) {
+#if GOOGLE_PROTOBUF_VERSION >= 3022000
+    return field.options().debug_redact();
+#else
+    return false;
+#endif
+}
+
+#ifdef ARCADIA_ROOT
 compiler::ThreadLocal kSecretFieldsVisitor = [] {
     return ugrpc::FieldsVisitor(
-        [](const google::protobuf::FieldDescriptor& field) { return GetFieldOptions(field).secret(); },
+        [](const google::protobuf::FieldDescriptor& field) {
+            // TODO enable this check.
+            if constexpr (false) {
+                UASSERT_MSG(
+                    !GetFieldOptions(field).secret(), "Please use debug_redact instead of (userver.field).secret"
+                );
+            }
+            return field.options().debug_redact() || GetFieldOptions(field).secret();
+        },
         ugrpc::FieldsVisitor::LockBehavior::kNone
     );
 };
+#else
+/// [fields visitor]
+compiler::ThreadLocal kSecretFieldsVisitor = [] {
+    return ugrpc::FieldsVisitor(
+        [](const google::protobuf::FieldDescriptor& field) {
+            return HasDebugRedactOption(field) || GetFieldOptions(field).secret();
+        },
+        ugrpc::FieldsVisitor::LockBehavior::kNone
+    );
+};
+/// [fields visitor]
+#endif
 
 }  // namespace
 

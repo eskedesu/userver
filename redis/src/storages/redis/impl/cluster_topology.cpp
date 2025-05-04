@@ -10,11 +10,10 @@ ClusterTopology::ClusterTopology(
     size_t version,
     std::chrono::steady_clock::time_point timestamp,
     ClusterShardHostInfos infos,
-    Password password,
     const std::shared_ptr<engine::ev::ThreadPool>& /*redis_thread_pool*/,
     const NodesStorage& nodes
 )
-    : infos_(std::move(infos)), password_(std::move(password)), version_(version), timestamp_(timestamp) {
+    : infos_(std::move(infos)), version_(version), timestamp_(timestamp) {
     {
         size_t all_instances_count = 0;
         for (const auto& info : infos_) {
@@ -68,6 +67,8 @@ ClusterTopology::ClusterTopology(
             ++shard_index;
         }
     }
+
+    UASSERT(!cluster_shards_.empty());
 }
 
 ClusterTopology::~ClusterTopology() = default;
@@ -77,6 +78,20 @@ bool ClusterTopology::IsReady(WaitConnectedMode mode) const {
            std::all_of(cluster_shards_.begin(), cluster_shards_.end(), [mode](const ClusterShard& shard) {
                return shard.IsReady(mode);
            });
+}
+
+std::string ClusterTopology::GetReadinessInfo() const {
+    std::string result = "Shards readiness: [";
+    for (const auto& shard : cluster_shards_) {
+        fmt::format_to(
+            std::back_inserter(result),
+            "master {}, replicas {}; ",
+            shard.IsReady(WaitConnectedMode::kMaster),
+            shard.IsReady(WaitConnectedMode::kSlave)
+        );
+    }
+    result += "]";
+    return result;
 }
 
 bool ClusterTopology::HasSameInfos(const ClusterShardHostInfos& infos) const {

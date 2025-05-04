@@ -28,10 +28,12 @@ std::unique_ptr<Connection> Connection::Connect(
     const error_injection::Settings& ei_settings,
     engine::SemaphoreLock&& size_lock
 ) {
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
     std::unique_ptr<Connection> conn(new Connection());
 
-    const auto deadline =
-        engine::Deadline::FromDuration(std::max(kMinConnectTimeout, default_cmd_ctls.GetDefaultCmdCtl().execute));
+    const auto deadline = engine::Deadline::FromDuration(
+        std::max(kMinConnectTimeout, default_cmd_ctls.GetDefaultCmdCtl().network_timeout_ms)
+    );
     conn->pimpl_ = std::make_unique<ConnectionImpl>(
         bg_task_processor,
         bg_task_storage,

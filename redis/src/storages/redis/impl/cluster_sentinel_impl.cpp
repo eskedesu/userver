@@ -23,6 +23,8 @@
 #include <storages/redis/impl/cluster_topology.hpp>
 #include <storages/redis/impl/redis_connection_holder.hpp>
 #include <storages/redis/impl/sentinel.hpp>
+#include <storages/redis/impl/standalone_topology_holder.hpp>
+#include <storages/redis/impl/topology_holder_base.hpp>
 
 #include "command_control_impl.hpp"
 
@@ -31,9 +33,10 @@ USERVER_NAMESPACE_BEGIN
 namespace storages::redis::impl {
 
 namespace {
-const auto kProcessCreationInterval = std::chrono::seconds(3);
-const auto kDeleteNodesCheckInterval = std::chrono::seconds(60);
-const auto kDeleteNodeInterval = std::chrono::seconds(600);
+constexpr auto kProcessCreationInterval = std::chrono::seconds(3);
+constexpr auto kDeleteNodesCheckInterval = std::chrono::seconds(60);
+constexpr auto kDeleteNodeInterval = std::chrono::seconds(600);
+constexpr std::size_t kClusterDatabaseIndex = 0;
 
 bool CheckQuorum(size_t requests_sent, size_t responses_parsed) {
     const size_t quorum = requests_sent / 2 + 1;
@@ -97,11 +100,11 @@ struct CommandSpecialPrinter {
 logging::LogHelper& operator<<(logging::LogHelper& os, CommandSpecialPrinter v) {
     const auto& command = v.command;
 
-    if (command->args.args.size() == 1 || command->invoke_counter + 1 >= command->args.args.size()) {
+    if (command->args.GetCommandCount() == 1 || command->invoke_counter + 1 >= command->args.GetCommandCount()) {
         os << command->args;
-    } else if (command->invoke_counter < command->args.args.size() && !command->args.args[command->invoke_counter].empty()) {
+    } else if (command->invoke_counter < command->args.GetCommandCount()) {
         os << fmt::format(
-            "subrequest idx={}, cmd={}", command->invoke_counter, command->args.args[command->invoke_counter].front()
+            "subrequest idx={}, cmd={}", command->invoke_counter, command->args.GetCommandName(command->invoke_counter)
         );
     }
 
@@ -147,7 +150,8 @@ void InvokeCommand(CommandPtr command, ReplyPtr&& reply) {
 
 }  // namespace
 
-class ClusterTopologyHolder : public std::enable_shared_from_this<ClusterTopologyHolder> {
+class ClusterTopologyHolder final : public TopologyHolderBase,
+                                    public std::enable_shared_from_this<ClusterTopologyHolder> {
 public:
     using HostPort = std::string;
 
@@ -236,7 +240,9 @@ public:
         LOG_DEBUG() << "Created ClusterTopologyHolder, shard_group_name=" << shard_group_name_;
     }
 
-    void Init() {
+    ~ClusterTopologyHolder() = default;
+
+    void Init() override {
         const constexpr bool kClusterMode = true;
         Shard::Options shard_options;
         shard_options.shard_name = "(sentinel)";
@@ -251,6 +257,9 @@ public:
         };
 
         sentinels_ = std::make_shared<Shard>(std::move(shard_options));
+
+        // https://github.com/boostorg/signals2/issues/59
+        // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
         sentinels_->SignalInstanceStateChange().connect([this](ServerId id, Redis::State state) {
             LOG_TRACE() << "Signaled server " << id.GetDescription() << " state=" << StateToString(state);
             if (state != Redis::State::kInit) sentinels_process_state_update_watch_.Send();
@@ -261,7 +270,7 @@ public:
         sentinels_->ProcessCreation(redis_thread_pool_);
     }
 
-    void Start() {
+    void Start() override {
         update_topology_watch_.Start();
         update_topology_timer_.Start();
         create_nodes_watch_.Start();
@@ -273,7 +282,7 @@ public:
         sentinels_process_creation_timer_.Start();
     }
 
-    void Stop() {
+    void Stop() override {
         ev_thread_.RunInEvLoopBlocking([this] {
             update_topology_timer_.Stop();
             explore_nodes_timer_.Stop();
@@ -285,8 +294,8 @@ public:
         nodes_.Clear();
     }
 
-    bool WaitReadyOnce(engine::Deadline deadline, WaitConnectedMode mode) {
-        std::unique_lock<std::mutex> lock(mutex_);
+    bool WaitReadyOnce(engine::Deadline deadline, WaitConnectedMode mode) override {
+        std::unique_lock lock{mutex_};
         return cv_.WaitUntil(lock, deadline, [this, mode]() {
             if (!IsInitialized()) return false;
             auto ptr = topology_.Read();
@@ -294,11 +303,11 @@ public:
         });
     }
 
-    rcu::ReadablePtr<ClusterTopology, rcu::BlockingRcuTraits> GetTopology() const { return topology_.Read(); }
+    rcu::ReadablePtr<ClusterTopology, rcu::BlockingRcuTraits> GetTopology() const override { return topology_.Read(); }
 
-    void SendUpdateClusterTopology() { update_topology_watch_.Send(); }
+    void SendUpdateClusterTopology() override { update_topology_watch_.Send(); }
 
-    std::shared_ptr<Redis> GetRedisInstance(const HostPort& host_port) const {
+    std::shared_ptr<Redis> GetRedisInstance(const HostPort& host_port) const override {
         const auto connection = nodes_.Get(host_port);
         if (connection) {
             return std::const_pointer_cast<Redis>(connection->Get());
@@ -313,9 +322,9 @@ public:
         return {};
     }
 
-    void GetStatistics(SentinelStatistics& stats, const MetricsSettings& settings) const;
+    void GetStatistics(SentinelStatistics& stats, const MetricsSettings& settings) const override;
 
-    void SetCommandsBufferingSettings(CommandsBufferingSettings settings) {
+    void SetCommandsBufferingSettings(CommandsBufferingSettings settings) override {
         {
             auto settings_ptr = commands_buffering_settings_.Lock();
             if (*settings_ptr == settings) {
@@ -328,7 +337,7 @@ public:
         }
     }
 
-    void SetReplicationMonitoringSettings(ReplicationMonitoringSettings settings) {
+    void SetReplicationMonitoringSettings(ReplicationMonitoringSettings settings) override {
         {
             auto settings_ptr = monitoring_settings_.Lock();
             *settings_ptr = settings;
@@ -338,7 +347,7 @@ public:
         }
     }
 
-    void SetRetryBudgetSettings(const utils::RetryBudgetSettings& settings) {
+    void SetRetryBudgetSettings(const utils::RetryBudgetSettings& settings) override {
         {
             auto settings_ptr = retry_budget_settings_.Lock();
             *settings_ptr = settings;
@@ -348,17 +357,33 @@ public:
         }
     }
 
-    void SetConnectionInfo(const std::vector<ConnectionInfoInt>& info_array) {
+    void SetConnectionInfo(const std::vector<ConnectionInfoInt>& info_array) override {
         sentinels_->SetConnectionInfo(info_array);
     }
 
     static size_t GetClusterSlotsCalledCounter() { return cluster_slots_call_counter_.load(std::memory_order_relaxed); }
 
-    boost::signals2::signal<void(HostPort, Redis::State)>& GetSignalNodeStateChanged() {
+    boost::signals2::signal<void(HostPort, Redis::State)>& GetSignalNodeStateChanged() override {
         return signal_node_state_change_;
     }
 
-    boost::signals2::signal<void(size_t)>& GetSignalTopologyChanged() { return signal_topology_changed_; }
+    boost::signals2::signal<void(size_t)>& GetSignalTopologyChanged() override { return signal_topology_changed_; }
+
+    void UpdatePassword(const Password& password) override {
+        auto lock = password_.UniqueLock();
+        *lock = password;
+    }
+
+    Password GetPassword() override {
+        const auto lock = password_.Lock();
+        return *lock;
+    }
+
+    std::string GetReadinessInfo() const override {
+        return fmt::format(
+            "Nodes received: {}; topology received: {}.", is_nodes_received_.load(), is_topology_received_.load()
+        );
+    }
 
 private:
     void ProcessStateUpdate() { sentinels_->ProcessStateUpdate(); }
@@ -368,7 +393,7 @@ private:
     std::shared_ptr<engine::ev::ThreadPool> redis_thread_pool_;
 
     std::string shard_group_name_;
-    Password password_;
+    concurrent::Variable<Password, std::mutex> password_;
     std::shared_ptr<const std::vector<std::string>> shards_names_;
     std::vector<ConnectionInfo> conns_;
     std::shared_ptr<Shard> sentinels_;
@@ -557,6 +582,7 @@ void ClusterTopologyHolder::CreateNodes() {
                 return;
             }
             topology_holder->GetSignalNodeStateChanged()(host_port, state);
+            { const std::lock_guard lock{topology_holder->mutex_}; }  // do not lose the notify
             topology_holder->cv_.NotifyAll();
         });
         nodes_.Insert(std::move(host_port), std::move(instance));
@@ -604,9 +630,9 @@ void ClusterSentinelImpl::ProcessWaitingCommands() {
         const auto& command = scommand.command;
         const CommandControlImpl cc{command->control};
         if (scommand.start + cc.timeout_all < now) {
-            for (const auto& args : command->args.args) {
+            for (const auto& args : command->args) {
                 auto reply = std::make_shared<Reply>(
-                    args[0], nullptr, ReplyStatus::kTimeoutError, "Command in the send queue timed out"
+                    args.GetCommandName(), nullptr, ReplyStatus::kTimeoutError, "Command in the send queue timed out"
                 );
                 statistics_internal_.redis_not_ready++;
                 InvokeCommand(command, std::move(reply));
@@ -627,9 +653,12 @@ void ClusterSentinelImpl::ProcessWaitingCommandsOnStop() {
 
     for (const SentinelCommand& scommand : waiting_commands) {
         const auto& command = scommand.command;
-        for (const auto& args : command->args.args) {
+        for (const auto& args : command->args) {
             auto reply = std::make_shared<Reply>(
-                args[0], nullptr, ReplyStatus::kTimeoutError, "Stopping, killing commands remaining in send queue"
+                args.GetCommandName(),
+                nullptr,
+                ReplyStatus::kTimeoutError,
+                "Stopping, killing commands remaining in send queue"
             );
             statistics_internal_.redis_not_ready++;
             InvokeCommand(command, std::move(reply));
@@ -647,12 +676,13 @@ std::shared_ptr<RedisConnectionHolder> ClusterTopologyHolder::CreateRedisInstanc
     const auto replication_monitoring_settings_ptr = monitoring_settings_.Lock();
     const auto retry_budget_settings_ptr = retry_budget_settings_.Lock();
     LOG_DEBUG() << "Create new redis instance " << host_port;
-    return std::make_shared<RedisConnectionHolder>(
+    return RedisConnectionHolder::Create(
         ev_thread_,
         redis_thread_pool_,
         host,
         port,
-        password_,
+        GetPassword(),
+        kClusterDatabaseIndex,
         buffering_settings_ptr->value_or(CommandsBufferingSettings{}),
         *replication_monitoring_settings_ptr,
         *retry_budget_settings_ptr
@@ -682,7 +712,7 @@ void ClusterTopologyHolder::UpdateClusterTopology() {
     /// ...
     ProcessGetClusterHostsRequest(
         shards_names_,
-        GetClusterHostsRequest(*sentinels_, password_),
+        GetClusterHostsRequest(*sentinels_, GetPassword()),
         [this, reset{std::move(reset_update_cluster_slots_)}](
             ClusterShardHostInfos shard_infos, size_t requests_sent, size_t responses_parsed, bool is_non_cluster_error
         ) {
@@ -716,7 +746,6 @@ void ClusterTopologyHolder::UpdateClusterTopology() {
                 ++current_topology_version_,
                 std::chrono::steady_clock::now(),
                 std::move(shard_infos),
-                password_,
                 redis_thread_pool_,
                 nodes_
             );
@@ -733,6 +762,7 @@ void ClusterTopologyHolder::UpdateClusterTopology() {
                     return;
                 }
                 is_topology_received_ = true;
+                { const std::lock_guard lock{mutex_}; }  // do not lose the notify
                 cv_.NotifyAll();
 
                 LOG_DEBUG() << "Cluster topology updated to version" << current_topology_version_.load();
@@ -767,7 +797,7 @@ ClusterSentinelImpl::ClusterSentinelImpl(
     const Password& password,
     ConnectionSecurity /*connection_security*/,
     ReadyChangeCallback ready_callback,
-    std::unique_ptr<KeyShard>&& /*key_shard*/,
+    std::unique_ptr<KeyShard>&& key_shard,
     dynamic_config::Source dynamic_config_source,
     ConnectionMode /*mode*/
 )
@@ -778,18 +808,25 @@ ClusterSentinelImpl::ClusterSentinelImpl(
           [this] { ProcessWaitingCommands(); },
           kSentinelGetHostsCheckInterval
       )),
-      topology_holder_(std::make_shared<
-                       ClusterTopologyHolder>(ev_thread_, redis_thread_pool, shard_group_name, password, shards, conns)
-      ),
       shard_group_name_(std::move(shard_group_name)),
       conns_(conns),
       ready_callback_(std::move(ready_callback)),
       redis_thread_pool_(redis_thread_pool),
       client_name_(client_name),
-      password_(password),
       dynamic_config_source_(std::move(dynamic_config_source)) {
-    // https://github.com/boostorg/signals2/issues/59
-    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDelete)
+    if (!key_shard) {
+        topology_holder_ = std::make_shared<ClusterTopologyHolder>(
+            ev_thread_, redis_thread_pool, shard_group_name, password, shards, conns
+        );
+    } else {
+        LOG_DEBUG() << "Contstruct Standalone topology holder";
+        UASSERT_MSG(conns.size() == 1, "In standalone mode we expect exactly one redis node to connect!");
+        // TODO: TAXICOMMON-10376 experiment with providing kClusterDatabaseIndex other than 0 for standalone mode
+        topology_holder_ = std::make_shared<StandaloneTopologyHolder>(
+            ev_thread_, redis_thread_pool, password, kClusterDatabaseIndex, conns.front()
+        );
+    }
+
     Init();
     LOG_DEBUG() << "Created ClusterSentinelImpl, shard_group_name=" << shard_group_name_;
 }
@@ -810,19 +847,22 @@ std::unordered_map<ServerId, size_t, ServerIdHasher> ClusterSentinelImpl::GetAva
 
 void ClusterSentinelImpl::WaitConnectedDebug(bool /*allow_empty_slaves*/) {
     const RedisWaitConnected wait_connected{
-        WaitConnectedMode::kMasterAndSlave, false, kRedisWaitConnectedDefaultTimeout};
+        WaitConnectedMode::kMasterAndSlave, true, kRedisWaitConnectedDefaultTimeout};
     WaitConnectedOnce(wait_connected);
 }
 
 void ClusterSentinelImpl::WaitConnectedOnce(RedisWaitConnected wait_connected) {
     auto deadline = engine::Deadline::FromDuration(wait_connected.timeout);
     if (!topology_holder_->WaitReadyOnce(deadline, wait_connected.mode)) {
+        auto topology = topology_holder_->GetTopology();
         const std::string msg = fmt::format(
             "Failed to init cluster slots for redis, shard_group_name={} in {} "
-            "ms, mode={}",
+            "ms, mode={}. {} {}",
             shard_group_name_,
             wait_connected.timeout.count(),
-            ToString(wait_connected.mode)
+            ToString(wait_connected.mode),
+            topology_holder_->GetReadinessInfo(),
+            topology->GetReadinessInfo()
         );
         if (wait_connected.throw_on_fail)
             throw ClientNotConnectedException(msg);
@@ -884,10 +924,9 @@ void ClusterSentinelImpl::AsyncCommand(const SentinelCommand& scommand, size_t p
             const bool error_ask = reply->data.IsErrorAsk();
             const bool error_moved = reply->data.IsErrorMoved();
             if (error_moved) {
-                const auto& args = ccommand->args.args;
                 LOG_DEBUG() << "MOVED" << reply->status_string << " c.instance_idx:" << ccommand->instance_idx
                             << " shard: " << shard << " movedto:" << ParseMovedShard(reply->data.GetError())
-                            << " args:" << args;
+                            << " args:" << ccommand->args;
                 this->topology_holder_->SendUpdateClusterTopology();
             }
             const bool retry_to_master =
@@ -923,8 +962,10 @@ void ClusterSentinelImpl::AsyncCommand(const SentinelCommand& scommand, size_t p
                     command->control.max_retries = retries_left;
 
                     auto new_command = PrepareCommand(
-                        std::move(ccommand->args),
-                        command->Callback(),
+                        ccommand->args.Clone(),
+                        [command](const CommandPtr& cmd, ReplyPtr reply) {
+                            if (command->callback) command->callback(cmd, std::move(reply));
+                        },
                         command->control,
                         command->counter + 1,
                         command->asking || error_ask,
@@ -1048,7 +1089,9 @@ void ClusterSentinelImpl::EnqueueCommand(const SentinelCommand& command) {
 
 size_t ClusterSentinelImpl::ShardsCount() const {
     const auto ptr = topology_holder_->GetTopology();
-    return ptr->GetShardsCount();
+    const auto res = ptr->GetShardsCount();
+    UASSERT(res != 0);
+    return res;
 }
 
 size_t ClusterSentinelImpl::GetClusterSlotsCalledCounter() {
@@ -1058,6 +1101,8 @@ size_t ClusterSentinelImpl::GetClusterSlotsCalledCounter() {
 void ClusterSentinelImpl::SetConnectionInfo(const std::vector<ConnectionInfoInt>& info_array) {
     topology_holder_->SetConnectionInfo(info_array);
 }
+
+void ClusterSentinelImpl::UpdatePassword(const Password& password) { topology_holder_->UpdatePassword(password); }
 
 PublishSettings ClusterSentinelImpl::GetPublishSettings() {
     return PublishSettings{kUnknownShard, false, CommandControl::Strategy::kEveryDc};

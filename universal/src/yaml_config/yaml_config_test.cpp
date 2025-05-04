@@ -767,14 +767,12 @@ TEST(YamlConfig, ExplicitStringType) {
 
 TEST(YamlConfig, SampleMultipleWithVarsEnv) {
     const auto node = formats::yaml::FromString(R"(
-# /// [sample multiple]
 # yaml
 some_element:
     some: $variable
     some#file: /some/path/to/the/file.yaml
     some#env: SOME_ENV_VARIABLE
     some#fallback: 100500
-# /// [sample multiple]
   )");
     const auto vars = formats::yaml::FromString("variable#env: VARIABLE_ENV");
 
@@ -814,6 +812,44 @@ some_element:
     yaml = yaml_config::YamlConfig(node, {}, yaml_config::YamlConfig::Mode::kEnvAndFileAllowed);
     EXPECT_EQ(yaml["some_element"]["some"].As<int>(), 100500);
     EXPECT_THAT(yaml["some_element"]["some"].GetPath(), testing::StrEq("some_element.some"));
+}
+
+TEST(YamlConfig, ToYaml) {
+    const auto node = formats::yaml::FromString(R"(
+foo: $variable
+bar#env: SOME_ENV_VARIABLE
+array:
+  - $another-variable
+)");
+
+    const auto vars = formats::yaml::FromString(R"(
+variable: 42
+another-variable#env: ANOTHER_ENV_VARIABLE
+)");
+
+    const auto expected = formats::yaml::FromString(R"(
+foo: 42
+bar: baz
+array:
+  - qux
+)");
+
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    ::setenv("SOME_ENV_VARIABLE", "baz", 1);
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    ::setenv("ANOTHER_ENV_VARIABLE", "qux", 1);
+
+    const yaml_config::YamlConfig yaml{node, vars, yaml_config::YamlConfig::Mode::kEnvAllowed};
+    const auto flattened = yaml.As<formats::yaml::Value>();
+
+    EXPECT_EQ(flattened, expected) <<                 //
+        "\n  flattened:\n" << ToString(flattened) <<  //
+        "\n  expected:\n" << ToString(expected);
+
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    ::unsetenv("SOME_ENV_VARIABLE");
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    ::unsetenv("ANOTHER_ENV_VARIABLE");
 }
 
 USERVER_NAMESPACE_END

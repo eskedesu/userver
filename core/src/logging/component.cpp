@@ -8,7 +8,7 @@
 #include <logging/impl/tcp_socket_sink.hpp>
 #include <logging/tp_logger.hpp>
 #include <logging/tp_logger_utils.hpp>
-#include <userver/alerts/component.hpp>
+#include <userver/alerts/source.hpp>
 #include <userver/components/component.hpp>
 #include <userver/components/statistics_storage.hpp>
 #include <userver/engine/async.hpp>
@@ -35,11 +35,13 @@ void ReopenLoggerFile(const std::shared_ptr<logging::impl::TpLogger>& logger) {
     logger->Reopen(logging::impl::ReopenMode::kAppend);
 }
 
+alerts::Source kLogReopeningAlert("log_reopening_error");
+
 }  // namespace
 
 /// [Signals sample - init]
 Logging::Logging(const ComponentConfig& config, const ComponentContext& context)
-    : alert_storage_(context.FindComponent<alerts::StorageComponent>().GetStorage()),
+    : metrics_storage_(context.FindComponent<components::StatisticsStorage>().GetMetricsStorage()),
       signal_subscriber_(context.FindComponent<os_signals::ProcessorComponent>()
                              .Get()
                              .AddListener(this, kName, os_signals::kSigUsr1, &Logging::OnLogRotate))
@@ -157,6 +159,13 @@ logging::LoggerPtr Logging::GetLogger(const std::string& name) {
     return it->second;
 }
 
+logging::TextLoggerPtr Logging::GetTextLogger(const std::string& name) {
+    auto logger = GetLogger(name);
+    auto text_logger = std::dynamic_pointer_cast<logging::impl::TextLogger>(logger);
+    if (!text_logger) throw std::runtime_error(fmt::format("Invalid logger '{}' type, not a text logger", name));
+    return text_logger;
+}
+
 logging::LoggerPtr Logging::GetLoggerOptional(const std::string& name) {
     return utils::FindOrDefault(loggers_, name, nullptr);
 }
@@ -212,19 +221,16 @@ void Logging::TryReopenFiles() {
     LOG_INFO() << "Log rotated";
 
     if (!result_messages.empty()) {
-        alert_storage_.FireAlert(
-            "log_reopening_error",
-            fmt::format(
-                "loggers [{}] failed to reopen the log "
-                "file: logs are getting lost now",
-                fmt::join(failed_loggers, ", ")
-            ),
-            alerts::kInfinity
+        kLogReopeningAlert.FireAlert(*metrics_storage_);
+        LOG_ERROR() << fmt::format(
+            "loggers [{}] failed to reopen the log "
+            "file: logs are getting lost now",
+            fmt::join(failed_loggers, ", ")
         );
 
         throw std::runtime_error("ReopenAll errors: " + result_messages);
     }
-    alert_storage_.StopAlertNow("log_reopening_error");
+    kLogReopeningAlert.StopAlertNow(*metrics_storage_);
 }
 
 void Logging::WriteStatistics(utils::statistics::Writer& writer) const {
@@ -273,6 +279,8 @@ properties:
                       - tskv
                       - ltsv
                       - raw
+                      - json
+                      - json_yadeploy
                 flush_level:
                     type: string
                     description: messages of this and higher levels get flushed to the file immediately

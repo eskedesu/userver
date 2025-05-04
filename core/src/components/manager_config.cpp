@@ -111,6 +111,10 @@ properties:
                     lead to inaccuracy in coro pool size estimation.
                     local_cache_size=0 disables local cache.
                 defaultDescription: 8
+            stack_usage_monitor_enabled:
+                type: boolean
+                description: stack usage monitor status
+                defaultDescription: true
     event_thread_pool:
         type: object
         description: event thread pool options
@@ -248,16 +252,16 @@ ManagerConfig Parse(const yaml_config::YamlConfig& value, formats::parse::To<Man
     config.task_processors = yaml_config::ParseMapToArray<engine::TaskProcessorConfig>(value["task_processors"]);
     config.default_task_processor = value["default_task_processor"].As<std::string>();
 
+    config.mlock_debug_info = value["mlock_debug_info"].As<bool>(config.mlock_debug_info);
+    config.disable_phdr_cache = value["disable_phdr_cache"].As<bool>(config.disable_phdr_cache);
+    config.preheat_stacktrace_collector =
+        value["preheat_stacktrace_collector"].As<bool>(config.preheat_stacktrace_collector);
     config.validate_components_configs = value["static_config_validation"].As<ValidationMode>(ValidationMode::kAll);
     config.enabled_experiments = utils::AsContainer<utils::impl::UserverExperimentSet>(
         value["userver_experiments"].As<std::unordered_map<std::string, bool>>({}) |
         boost::adaptors::filtered([](const auto& pair) { return pair.second; }) |
         boost::adaptors::transformed([](const auto& pair) { return pair.first; })
     );
-    config.mlock_debug_info = value["mlock_debug_info"].As<bool>(config.mlock_debug_info);
-    config.disable_phdr_cache = value["disable_phdr_cache"].As<bool>(config.disable_phdr_cache);
-    config.preheat_stacktrace_collector =
-        value["preheat_stacktrace_collector"].As<bool>(config.preheat_stacktrace_collector);
     config.graceful_shutdown_interval =
         value["graceful_shutdown_interval"].As<std::chrono::milliseconds>(config.graceful_shutdown_interval);
 

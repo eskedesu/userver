@@ -92,7 +92,7 @@ constexpr utils::TrivialBiMap kHugeTrivialBiMap = [](auto selector) {
         .Case("aaaaaaaaaaaaaaaa_x9", 42);
 };
 
-constexpr std::string_view kHugeTrivialBiMapKeys[] = {
+constexpr utils::StringLiteral kHugeTrivialBiMapKeys[] = {
     "aaaaaaaaaaaaaaaa_hello", "aaaaaaaaaaaaaaaa_world", "aaaaaaaaaaaaaaaa_a",  "aaaaaaaaaaaaaaaa_b",
     "aaaaaaaaaaaaaaaa_c",     "aaaaaaaaaaaaaaaa_d",     "aaaaaaaaaaaaaaaa_e",  "aaaaaaaaaaaaaaaa_f",
     "aaaaaaaaaaaaaaaa_f1",    "aaaaaaaaaaaaaaaa_f2",    "aaaaaaaaaaaaaaaa_f3", "aaaaaaaaaaaaaaaa_f4",
@@ -221,7 +221,7 @@ std::optional<Enum1> Enum1From2Switch(Enum2 value) {
         case Enum2::C13:
             return Enum1::C16;
         default:
-            return {};
+            return std::nullopt;
     }
 }
 

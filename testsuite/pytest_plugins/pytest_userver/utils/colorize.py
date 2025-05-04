@@ -106,6 +106,11 @@ class Colorizer:
                     ),
                 )
         elif entry_type == 'response':
+            if 'body' not in row:
+                raise RuntimeError(
+                    f'Response log record without "body" tag. Looks like in the C++ code the tracing::Span of a'
+                    f'request was moved out or corrupted. Link: {link}. Text: {text}. Other: {row}'
+                )
             if 'meta_code' in row:
                 status_code = row.pop('meta_code')
                 extra_fields.append(
@@ -239,7 +244,7 @@ def colorize_main():
     parser.add_argument(
         '--color',
         metavar='WHEN',
-        help=('Control color highlighting, WHEN is always, never or ' 'auto (default)'),
+        help=('Control color highlighting, WHEN is always, never or auto (default)'),
         nargs='?',
         type=parse_color,
         default=ColorArg.AUTO,

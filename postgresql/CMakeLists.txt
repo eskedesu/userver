@@ -13,7 +13,7 @@ else()
   )
 
   if(USERVER_CONAN)
-    find_package(PostgreSQL REQUIRED CONFIG)
+    find_package(PostgreSQL REQUIRED)
   else()
     find_library(PostgreSQL_LIBRARY NAMES libpq.so libpq.dylib REQUIRED)
     find_package(PostgreSQL REQUIRED)
@@ -50,6 +50,7 @@ userver_module(postgresql
     UBENCH_LINK_LIBRARIES userver-libpq
     UBENCH_DATABASES postgresql
     UBENCH_ENV POSTGRES_DSN_BENCH=postgresql://testsuite@localhost:15433/postgres
+    GENERATE_DYNAMIC_CONFIGS
 )
 
 target_sources(${PROJECT_NAME} PRIVATE "${LIBPQ_VERSION_DIR}/userver_libpq_version.hpp")

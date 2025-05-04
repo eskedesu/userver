@@ -11,6 +11,7 @@ from conan.tools.cmake import CMakeDeps
 from conan.tools.cmake import CMakeToolchain
 from conan.tools.files import copy
 from conan.tools.files import load
+from conan.tools.scm import Git
 
 required_conan_version = '>=2.8.0'  # pylint: disable=invalid-name
 
@@ -23,7 +24,6 @@ class UserverConan(ConanFile):
     homepage = 'https://userver.tech/'
     license = 'Apache-2.0'
     package_type = 'static-library'
-    exports_sources = '*'
 
     settings = 'os', 'arch', 'compiler', 'build_type'
     options = {
@@ -81,7 +81,16 @@ class UserverConan(ConanFile):
         'librdkafka/*:sasl': True,
         'librdkafka/*:zlib': True,
         'librdkafka/*:zstd': True,
+        're2/*:with_icu': True,
     }
+
+    def export_sources(self):
+        git = Git(self)
+        tracked_sources = git.included_files()
+        # To speed up copying, we take only the root folders
+        tracked_sources = set(f.split('/')[0] for f in tracked_sources)
+        for i in tracked_sources:
+            copy(self, f'{i}*', self.recipe_folder, self.export_sources_folder)
 
     def set_version(self):
         content = load(
@@ -94,7 +103,7 @@ class UserverConan(ConanFile):
         major_version = re.search(r'set\(USERVER_MAJOR_VERSION (.*)\)', content).group(1).strip()
         minor_version = re.search(r'set\(USERVER_MINOR_VERSION (.*)\)', content).group(1).strip()
 
-        self.version = f'{major_version}.{minor_version}'
+        self.version = f'{major_version}.{minor_version}'  # pylint: disable=attribute-defined-outside-init
 
     def layout(self):
         cmake_layout(self)
@@ -105,7 +114,7 @@ class UserverConan(ConanFile):
         self.requires('cctz/2.4', transitive_headers=True)
         self.requires('concurrentqueue/1.0.3', transitive_headers=True)
         self.requires('cryptopp/8.9.0')
-        self.requires('fmt/8.1.1', transitive_headers=True)
+        self.requires('fmt/11.0.2', transitive_headers=True)
         self.requires('libiconv/1.17')
         self.requires('libnghttp2/1.61.0')
         self.requires('libcurl/7.86.0')
@@ -115,6 +124,8 @@ class UserverConan(ConanFile):
         self.requires('yaml-cpp/0.8.0')
         self.requires('zlib/1.3.1')
         self.requires('zstd/1.5.5')
+        self.requires('icu/74.1', force=True)
+        self.requires('re2/20230301')
 
         if self.options.with_jemalloc:
             self.requires('jemalloc/5.3.0')
@@ -130,7 +141,9 @@ class UserverConan(ConanFile):
                 'protobuf/5.27.0',
                 transitive_headers=True,
                 transitive_libs=True,
+                force=True,
             )
+            self.requires('googleapis/cci.20230501')
         if self.options.with_postgresql:
             self.requires('libpq/14.5')
         if self.options.with_mongodb or self.options.with_kafka:
@@ -162,6 +175,8 @@ class UserverConan(ConanFile):
             self.requires('librdkafka/2.6.0')
         if self.options.with_s3api:
             self.requires('pugixml/1.14')
+        if self.options.with_otlp:
+            self.requires('opentelemetry-proto/1.3.0')
 
     def build_requirements(self):
         self.tool_requires('protobuf/5.27.0')
@@ -206,6 +221,17 @@ class UserverConan(ConanFile):
         tool_ch.variables['USERVER_FEATURE_EASY'] = self.options.with_easy
         tool_ch.variables['USERVER_FEATURE_S3API'] = self.options.with_s3api
         tool_ch.variables['USERVER_FEATURE_GRPC_REFLECTION'] = self.options.with_grpc_reflection
+
+        if self.options.with_grpc:
+            tool_ch.variables['USERVER_GOOGLE_COMMON_PROTOS'] = (
+                self.dependencies['googleapis'].cpp_info.components['google_rpc_status_proto'].resdirs[0]
+            )
+
+        if self.options.with_otlp:
+            tool_ch.variables['USERVER_OPENTELEMETRY_PROTO'] = self.dependencies['opentelemetry-proto'].conf_info.get(
+                'user.opentelemetry-proto:proto_root'
+            )
+
         tool_ch.generate()
 
         CMakeDeps(self).generate()

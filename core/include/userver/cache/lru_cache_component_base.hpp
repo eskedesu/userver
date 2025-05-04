@@ -59,6 +59,7 @@ yaml_config::Schema GetLruCacheComponentBaseSchema();
 /// size | max amount of items to store in cache | --
 /// ways | number of ways for associative cache | --
 /// lifetime | TTL for cache entries (0 is unlimited) | 0
+/// background-update | enables asynchronous updates for expiring values | false
 /// config-settings | enables dynamic reconfiguration with CacheConfigSet | true
 ///
 /// ## Example usage:
@@ -124,7 +125,7 @@ LruCacheComponent<Key, Value, Hash, Equal>::LruCacheComponent(
     const components::ComponentContext& context
 )
     : ComponentBase(config, context),
-      name_(components::GetCurrentComponentName(config)),
+      name_(components::GetCurrentComponentName(context)),
       static_config_(config),
       cache_(std::make_shared<Cache>(static_config_.ways, static_config_.GetWaySize())) {
     if (impl::IsDumpSupportEnabled(config)) {
@@ -152,7 +153,7 @@ LruCacheComponent<Key, Value, Hash, Equal>::LruCacheComponent(
         writer = *cache_;
     });
 
-    reset_registration_ = testsuite::RegisterCache(config, context, this, &LruCacheComponent::DropCache);
+    reset_registration_ = testsuite::RegisterCache(context, this, &LruCacheComponent::DropCache);
 }
 
 template <typename Key, typename Value, typename Hash, typename Equal>

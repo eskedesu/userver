@@ -5,7 +5,7 @@
 USERVER_NAMESPACE_BEGIN
 
 namespace {
-storages::redis::CommandControl kDefaultCc(std::chrono::milliseconds(500), std::chrono::milliseconds(500), 1);
+constexpr storages::redis::CommandControl kDefaultCc{std::chrono::milliseconds(500), std::chrono::milliseconds(500), 1};
 
 class RedisClientTransactionTest : public RedisClientTest {
 public:
@@ -796,7 +796,7 @@ std::uint64_t GetCommandCount(std::unordered_map<std::string, storages::redis::i
 
 }  // namespace
 
-UTEST_F(RedisClientTransactionTest, DISABLED_NotReadOnlySetSet) {
+UTEST_F(RedisClientTransactionTest, NotReadOnlySetSet) {
     auto client = GetClient();
     auto sentinel = GetSentinel();
 
@@ -815,7 +815,7 @@ UTEST_F(RedisClientTransactionTest, DISABLED_NotReadOnlySetSet) {
     EXPECT_EQ(slave_command_count, 0);
 }
 
-UTEST_F(RedisClientTransactionTest, DISABLED_NotReadOnlySetGet) {
+UTEST_F(RedisClientTransactionTest, NotReadOnlySetGet) {
     auto client = GetClient();
     auto sentinel = GetSentinel();
 
@@ -842,7 +842,7 @@ UTEST_F(RedisClientTransactionTest, DISABLED_NotReadOnlySetGet) {
     EXPECT_EQ(slave_command_count, 0);
 }
 
-UTEST_F(RedisClientTransactionTest, DISABLED_ReadOnlyGetGet) {
+UTEST_F(RedisClientTransactionTest, ReadOnlyGetGet) {
     auto client = GetClient();
     auto sentinel = GetSentinel();
 
@@ -859,6 +859,22 @@ UTEST_F(RedisClientTransactionTest, DISABLED_ReadOnlyGetGet) {
 
     EXPECT_EQ(master_command_count, 0);
     EXPECT_EQ(slave_command_count, 4);
+}
+
+UTEST_F(RedisClientTransactionTest, TransactionSmokeRetriesFailure) {
+    auto client = GetClient();
+    using namespace std::chrono_literals;
+    storages::redis::CommandControl kRetryCc{1ms, 300ms, 100};
+    kRetryCc.allow_reads_from_master = true;
+
+    const size_t kSubseqChanges = 1000;
+    auto transaction = client->Multi();
+    const std::string key = "some_key";
+    for (size_t j = 0; j < kSubseqChanges; ++j) {
+        [[maybe_unused]] auto set = transaction->Set(key, "some value" + std::to_string(j), 500ms);
+        [[maybe_unused]] auto get = transaction->Get(key);
+    }
+    UASSERT_THROW(transaction->Exec(kRetryCc).Get(), storages::redis::RequestFailedException);
 }
 
 USERVER_NAMESPACE_END

@@ -13,8 +13,6 @@
 #include <userver/formats/json/exception.hpp>
 #include <userver/formats/json/impl/types.hpp>
 #include <userver/formats/json/iterator.hpp>
-#include <userver/formats/json/schema.hpp>
-#include <userver/formats/json/serialize.hpp>
 #include <userver/formats/json/string_builder_fwd.hpp>
 #include <userver/formats/parse/common.hpp>
 
@@ -56,6 +54,8 @@ class JsonValueParser;
 /// @snippet formats/json/value_test.cpp  Sample formats::json::Value usage
 ///
 /// @see @ref scripts/docs/en/userver/formats.md
+///
+/// To iterate over `Value` as object use formats::common::Items.
 class Value final {
 public:
     struct IterTraits {
@@ -103,6 +103,8 @@ public:
 
     /// @brief Returns an iterator to the beginning of the held array or map.
     /// @throw TypeMismatchException if not an array, object, or null.
+    ///
+    /// To iterate over `Value` as object use formats::common::Items.
     const_iterator begin() const;
 
     /// @brief Returns an iterator to the end of the held array or map.

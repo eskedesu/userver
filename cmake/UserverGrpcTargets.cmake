@@ -175,7 +175,7 @@ function(userver_generate_grpc_files)
   foreach(proto_file ${GEN_RPC_PROTOS})
     get_filename_component(proto_file "${proto_file}" REALPATH BASE_DIR "${root_path}")
     get_filename_component(path "${proto_file}" DIRECTORY)
-    get_filename_component(name_base "${proto_file}" NAME_WE)
+    get_filename_component(name_base "${proto_file}" NAME_WLE)
     file(RELATIVE_PATH path_base "${root_path}" "${path}/${name_base}")
     list(APPEND proto_abs_paths "${proto_file}")
     list(APPEND proto_rel_paths "${path_base}")
@@ -244,6 +244,7 @@ function(userver_generate_grpc_files)
       COMMENT "Running gRPC C++ protocol buffer compiler for ${root_path}"
       ${CODEGEN}
   )
+  _userver_codegen_register_files("${generated_cpps};${generated_usrv_cpps}")
   message(STATUS "Scheduled build-time generation of protos in ${root_path}")
 
   set_source_files_properties(

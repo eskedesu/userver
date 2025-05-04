@@ -1,7 +1,8 @@
 #pragma once
-#include <userver/storages/redis/impl/keyshard.hpp>
 
 #include <optional>
+
+#include <storages/redis/impl/keyshard.hpp>
 #include <utils/encoding.hpp>
 
 USERVER_NAMESPACE_BEGIN
@@ -56,8 +57,6 @@ private:
 };
 
 inline constexpr char kRedisCluster[] = "RedisCluster";
-
-bool IsClusterStrategy(const std::string& type);
 
 }  // namespace storages::redis::impl
 

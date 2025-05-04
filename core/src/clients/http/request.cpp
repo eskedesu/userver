@@ -1,8 +1,6 @@
 #include <userver/clients/http/request.hpp>
 
-#include <chrono>
 #include <cstdlib>
-#include <map>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -37,6 +35,17 @@ namespace clients::http {
 namespace {
 
 constexpr std::string_view kHeaderExpect = "Expect";
+
+static constexpr utils::TrivialBiMap kHttpMethodMap([](auto selector) {
+    return selector()
+        .Case(HttpMethod::kGet, "GET")
+        .Case(HttpMethod::kHead, "HEAD")
+        .Case(HttpMethod::kPost, "POST")
+        .Case(HttpMethod::kPut, "PUT")
+        .Case(HttpMethod::kPatch, "PATCH")
+        .Case(HttpMethod::kDelete, "DELETE")
+        .Case(HttpMethod::kOptions, "OPTIONS");
+});
 
 std::string ToString(HttpMethod method) { return std::string{ToStringView(method)}; }
 
@@ -171,19 +180,16 @@ bool IsAllowedSchemaInUrl(std::string_view url) {
 
 }  // namespace
 
-std::string_view ToStringView(HttpMethod method) {
-    static constexpr utils::TrivialBiMap kMap([](auto selector) {
-        return selector()
-            .Case(HttpMethod::kDelete, "DELETE")
-            .Case(HttpMethod::kGet, "GET")
-            .Case(HttpMethod::kHead, "HEAD")
-            .Case(HttpMethod::kPost, "POST")
-            .Case(HttpMethod::kPut, "PUT")
-            .Case(HttpMethod::kPatch, "PATCH")
-            .Case(HttpMethod::kOptions, "OPTIONS");
-    });
+std::string_view ToStringView(HttpMethod method) { return utils::impl::EnumToStringView(method, kHttpMethodMap); }
 
-    return utils::impl::EnumToStringView(method, kMap);
+HttpMethod HttpMethodFromString(std::string_view method_str) {
+    if (auto method = kHttpMethodMap.TryFindBySecond(method_str)) {
+        return *method;
+    }
+
+    throw std::runtime_error(
+        fmt::format("Unsupported http method '{}' (must be one of {})", method_str, kHttpMethodMap.DescribeSecond())
+    );
 }
 
 ProxyAuthType ProxyAuthTypeFromString(const std::string& auth_name) {
@@ -241,18 +247,22 @@ std::shared_ptr<Response> Request::perform(utils::impl::SourceLocation location)
     return async_perform(location).Get();
 }
 
-Request& Request::url(const std::string& url) & {
+Request& Request::url(std::string url) & {
     if (!IsAllowedSchemaInUrl(url)) {
         throw BadArgumentException(curl::errc::EasyErrorCode::kUnsupportedProtocol, "Bad URL", url, {});
     }
+
+    RequestState& impl = *pimpl_;
     std::error_code ec;
-    pimpl_->easy().set_url(url, ec);
+    impl.easy().set_url(std::move(url), ec);
+
+    /// `curl::easy::set_url(std::string&&, std::error_code&)` doesn't consume the string if fails.
     if (ec) throw BadArgumentException(ec, "Bad URL", url, {});
 
-    pimpl_->SetDestinationMetricNameAuto(USERVER_NAMESPACE::http::ExtractMetaTypeFromUrl(url));
+    impl.SetDestinationMetricNameAuto(USERVER_NAMESPACE::http::ExtractMetaTypeFromUrl(impl.easy().get_original_url()));
     return *this;
 }
-Request Request::url(const std::string& url) && { return std::move(this->url(url)); }
+Request Request::url(std::string url) && { return std::move(this->url(std::move(url))); }
 
 Request& Request::timeout(long timeout_ms) & {
     pimpl_->set_timeout(timeout_ms);
@@ -477,40 +487,46 @@ Request Request::set_custom_http_request_method(std::string method) && {
     return std::move(this->set_custom_http_request_method(std::move(method)));
 }
 
-Request& Request::get(const std::string& url) & { return get().url(url); }
-Request Request::get(const std::string& url) && { return std::move(this->get(url)); }
+Request& Request::get(std::string url) & { return get().url(std::move(url)); }
+Request Request::get(std::string url) && { return std::move(this->get(std::move(url))); }
 
-Request& Request::head(const std::string& url) & { return head().url(url); }
-Request Request::head(const std::string& url) && { return std::move(this->head(url)); }
+Request& Request::head(std::string url) & { return head().url(std::move(url)); }
+Request Request::head(std::string url) && { return std::move(this->head(std::move(url))); }
 
-Request& Request::post(const std::string& url, Form&& form) & { return this->url(url).form(std::move(form)); }
-Request Request::post(const std::string& url, Form&& form) && { return std::move(this->post(url, std::move(form))); }
-
-Request& Request::post(const std::string& url, std::string data) & {
-    return this->url(url).data(std::move(data)).post();
-}
-Request Request::post(const std::string& url, std::string data) && {
-    return std::move(this->post(url, std::move(data)));
+Request& Request::post(std::string url, Form&& form) & { return this->url(std::move(url)).form(std::move(form)); }
+Request Request::post(std::string url, Form&& form) && {
+    return std::move(this->post(std::move(url), std::move(form)));
 }
 
-Request& Request::put(const std::string& url, std::string data) & { return this->url(url).data(std::move(data)).put(); }
-Request Request::put(const std::string& url, std::string data) && { return std::move(this->put(url, std::move(data))); }
-
-Request& Request::patch(const std::string& url, std::string data) & {
-    return this->url(url).data(std::move(data)).patch();
+Request& Request::post(std::string url, std::string data) & {
+    return this->url(std::move(url)).data(std::move(data)).post();
 }
-Request Request::patch(const std::string& url, std::string data) && {
-    return std::move(this->patch(url, std::move(data)));
+Request Request::post(std::string url, std::string data) && {
+    return std::move(this->post(std::move(url), std::move(data)));
 }
 
-Request& Request::delete_method(const std::string& url) & { return this->url(url).delete_method(); }
-Request Request::delete_method(const std::string& url) && { return std::move(this->delete_method(url)); }
-
-Request& Request::delete_method(const std::string& url, std::string data) & {
-    return this->url(url).data(std::move(data)).delete_method();
+Request& Request::put(std::string url, std::string data) & {
+    return this->url(std::move(url)).data(std::move(data)).put();
 }
-Request Request::delete_method(const std::string& url, std::string data) && {
-    return std::move(this->delete_method(url, std::move(data)));
+Request Request::put(std::string url, std::string data) && {
+    return std::move(this->put(std::move(url), std::move(data)));
+}
+
+Request& Request::patch(std::string url, std::string data) & {
+    return this->url(std::move(url)).data(std::move(data)).patch();
+}
+Request Request::patch(std::string url, std::string data) && {
+    return std::move(this->patch(std::move(url), std::move(data)));
+}
+
+Request& Request::delete_method(std::string url) & { return this->url(std::move(url)).delete_method(); }
+Request Request::delete_method(std::string url) && { return std::move(this->delete_method(std::move(url))); }
+
+Request& Request::delete_method(std::string url, std::string data) & {
+    return this->url(std::move(url)).data(std::move(data)).delete_method();
+}
+Request Request::delete_method(std::string url, std::string data) && {
+    return std::move(this->delete_method(std::move(url), std::move(data)));
 }
 
 Request& Request::SetLoggedUrl(std::string url) & {

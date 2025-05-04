@@ -1,10 +1,11 @@
 #pragma once
 
-#include <atomic>
 #include <memory>
 #include <optional>
 #include <string_view>
-#include <utility>
+#include <variant>
+
+#include <google/rpc/status.pb.h>
 
 #include <grpcpp/client_context.h>
 #include <grpcpp/completion_queue.h>
@@ -17,9 +18,9 @@
 #include <userver/tracing/span.hpp>
 #include <userver/utils/function_ref.hpp>
 
-#include <userver/ugrpc/client/call_kind.hpp>
 #include <userver/ugrpc/client/exceptions.hpp>
 #include <userver/ugrpc/client/impl/async_method_invocation.hpp>
+#include <userver/ugrpc/client/impl/call_kind.hpp>
 #include <userver/ugrpc/client/impl/call_params.hpp>
 #include <userver/ugrpc/impl/async_method_invocation.hpp>
 #include <userver/ugrpc/impl/maybe_owned_string.hpp>
@@ -46,12 +47,6 @@ template <typename Request, typename Response>
 using RawReaderWriter = std::unique_ptr<grpc::ClientAsyncReaderWriter<Request, Response>>;
 /// @}
 
-void SetStatusDetailsForSpan(
-    tracing::Span& span,
-    const grpc::Status& status,
-    const std::optional<std::string>& error_details
-);
-
 struct RpcConfigValues final {
     explicit RpcConfigValues(const dynamic_config::Snapshot& config);
 
@@ -68,6 +63,8 @@ public:
     RpcData(RpcData&&) noexcept = delete;
     RpcData& operator=(RpcData&&) noexcept = delete;
     ~RpcData();
+
+    ClientData::StubHandle& GetStub() noexcept;
 
     const grpc::ClientContext& GetContext() const noexcept;
 
@@ -132,7 +129,6 @@ public:
     void SetStatusExtracted() noexcept;
 
     grpc::Status& GetStatus() noexcept;
-    ParsedGStatus& GetParsedGStatus() noexcept;
 
     class AsyncMethodInvocationGuard {
     public:
@@ -149,6 +145,7 @@ public:
     };
 
 private:
+    ClientData::StubHandle stub_;
     std::unique_ptr<grpc::ClientContext> context_;
     std::string client_name_;
     ugrpc::impl::MaybeOwnedString call_name_;
@@ -165,7 +162,6 @@ private:
     CallKind call_kind_{};
 
     grpc::Status status_;
-    ParsedGStatus parsed_g_status_;
     bool finish_processed_{false};
     bool status_extracted_{false};
 
@@ -193,11 +189,13 @@ void StartCall(GrpcStream& stream, RpcData& data) {
 
 void PrepareFinish(RpcData& data);
 
+void ProcessFinish(RpcData& data, utils::function_ref<void(RpcData& data, const grpc::Status& status)> post_finish);
+
+void CheckFinishStatus(RpcData& data);
+
 void ProcessFinishResult(
     RpcData& data,
     AsyncMethodInvocation::WaitStatus wait_status,
-    grpc::Status&& status,
-    ParsedGStatus&& parsed_gstatus,
     utils::function_ref<void(RpcData& data, const grpc::Status& status)> post_finish,
     bool throw_on_error
 );
@@ -218,11 +216,13 @@ void Finish(
     const auto wait_status = Wait(finish, data.GetContext());
     if (wait_status == impl::AsyncMethodInvocation::WaitStatus::kCancelled) {
         data.GetStatsScope().OnCancelled();
-        if (throw_on_error) throw RpcCancelledError(data.GetCallName(), "Finish");
+        if (throw_on_error) {
+            throw RpcCancelledError(data.GetCallName(), "Finish");
+        }
+        return;
     }
-    ProcessFinishResult(
-        data, wait_status, std::move(status), std::move(data.GetParsedGStatus()), post_finish, throw_on_error
-    );
+
+    ProcessFinishResult(data, wait_status, post_finish, throw_on_error);
 }
 
 void PrepareRead(RpcData& data);

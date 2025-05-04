@@ -5,6 +5,7 @@
 #include <userver/compiler/demangle.hpp>
 #include <userver/dynamic_config/exception.hpp>
 #include <userver/dynamic_config/storage_mock.hpp>
+#include <userver/formats/json/serialize.hpp>
 #include <userver/utils/cpu_relax.hpp>
 #include <userver/utils/enumerate.hpp>
 #include <userver/utils/impl/static_registration.hpp>
@@ -124,8 +125,10 @@ SnapshotData::SnapshotData(const DocsMap& defaults, const std::vector<KeyValue>&
             try {
                 user_configs_[id] = metadata.factory(defaults);
             } catch (const std::exception& ex) {
+                const auto name =
+                    metadata.name.empty() ? "with custom DocsMap parser" : std::string_view{metadata.name};
                 throw ConfigParseError(fmt::format(
-                    "{} while parsing dynamic config values. {}", compiler::GetTypeName(typeid(ex)), ex.what()
+                    "{} while parsing dynamic config {}. {}", compiler::GetTypeName(typeid(ex)), name, ex.what()
                 ));
             }
         }

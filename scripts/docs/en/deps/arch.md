@@ -2,6 +2,7 @@ benchmark
 boost
 c-ares
 ccache
+clang-format-git
 cmake
 crypto++
 curl
@@ -26,6 +27,7 @@ python-jinja
 python-pip
 python-voluptuous
 python-yaml
+re2
 rocksdb
 yaml-cpp
 zlib

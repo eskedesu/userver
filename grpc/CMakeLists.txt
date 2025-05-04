@@ -73,7 +73,7 @@ _userver_directory_install(COMPONENT grpc
   DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/..
 )
-if (DEFINED api-common-proto_LIBRARY)
+if(DEFINED api-common-proto_LIBRARY)
   target_link_libraries(${PROJECT_NAME}-internal PUBLIC ${api-common-proto_LIBRARY})
   _userver_install_targets(COMPONENT grpc TARGETS ${api-common-proto_LIBRARY})
 endif()
@@ -205,6 +205,13 @@ add_subdirectory(handlers)
 add_library(${PROJECT_NAME} INTERFACE)
 target_link_libraries(${PROJECT_NAME} INTERFACE ${PROJECT_NAME}-handlers)
 target_link_libraries(${PROJECT_NAME} INTERFACE ${PROJECT_NAME}-internal)
+
+userver_target_generate_chaotic_dynamic_configs(
+    ${PROJECT_NAME}-dynamic-configs
+    dynamic_configs/*.yaml
+)
+target_link_libraries(${PROJECT_NAME}-internal PUBLIC ${PROJECT_NAME}-dynamic-configs)
+_userver_install_targets(COMPONENT grpc TARGETS ${PROJECT_NAME}-dynamic-configs)
 
 _userver_install_targets(COMPONENT grpc TARGETS ${PROJECT_NAME})
 

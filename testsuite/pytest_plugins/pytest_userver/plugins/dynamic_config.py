@@ -45,7 +45,7 @@ class InvalidDefaultsError(BaseError):
 
 
 class UnknownConfigError(BaseError):
-    """Invalid dynamic config name in @pytest.mark.config"""
+    """Invalid dynamic config name in `@pytest.mark.config`"""
 
 
 ConfigDict = typing.Dict[str, typing.Any]
@@ -230,7 +230,11 @@ class _Changelog:
 
 
 class DynamicConfig:
-    """Simple dynamic config backend."""
+    """
+    @brief Simple dynamic config backend.
+
+    @see @ref pytest_userver.plugins.dynamic_config.dynamic_config "dynamic_config"
+    """
 
     def __init__(
         self,
@@ -329,12 +333,20 @@ def dynamic_config(
     """
     Fixture that allows to control dynamic config values used by the service.
 
-    After change to the config, be sure to call:
-    @code
-    await service_client.update_server_state()
-    @endcode
+    Example:
 
-    HTTP client requests call it automatically before each request.
+    @snippet core/functional_tests/basic_chaos/tests-nonchaos/handlers/test_log_request_headers.py dynamic_config usage
+
+    HTTP and gRPC client requests call `update_server_state` automatically before each request.
+
+    For main dynamic config documentation:
+
+    @see @ref dynamic_config_testsuite
+
+    See also other related fixtures:
+    * @ref pytest_userver.plugins.dynamic_config.dynamic_config "config_service_defaults"
+    * @ref pytest_userver.plugins.dynamic_config.dynamic_config "dynamic_config_fallback_patch"
+    * @ref pytest_userver.plugins.dynamic_config.dynamic_config "mock_configs_service"
 
     @ingroup userver_testsuite_fixtures
     """
@@ -358,6 +370,9 @@ def dynamic_config(
         yield config
 
 
+# @cond
+
+
 def pytest_configure(config):
     config.addinivalue_line(
         'markers',
@@ -367,6 +382,9 @@ def pytest_configure(config):
         'markers',
         'disable_config_check: disable config mark keys check',
     )
+
+
+# @endcond
 
 
 @pytest.fixture(scope='session')
@@ -469,7 +487,7 @@ class _ConfigDefaults:
 # unspecified in tests, on the testsuite side. For that, we ask the service
 # for the dynamic config defaults after it's launched. It's enough to update
 # defaults once per service launch.
-@pytest.fixture(scope='package')
+@pytest.fixture(scope='session')
 def _dynamic_config_defaults_storage() -> _ConfigDefaults:
     return _ConfigDefaults(snapshot=None)
 
@@ -520,7 +538,7 @@ def userver_config_dynconf_fallback(config_service_defaults):
         elif isinstance(defaults_field, str):
             if defaults_field.startswith('$'):
                 return config_vars.get(defaults_field[1:], {})
-        assert False, f'Unexpected static config option ' f'`dynamic-config.defaults`: {defaults_field!r}'
+        assert False, f'Unexpected static config option `dynamic-config.defaults`: {defaults_field!r}'
 
     def _patch_config(config_yaml, config_vars):
         components = config_yaml['components_manager']['components']
@@ -561,11 +579,17 @@ def userver_config_dynconf_url(mockserver_info):
     return _patch_config
 
 
+# @cond
+
+
 # TODO publish _Changelog and document how to use it in custom config service
 #  mocks.
 @pytest.fixture(scope='session')
 def dynamic_config_changelog() -> _Changelog:
     return _Changelog()
+
+
+# @endcond
 
 
 @pytest.fixture

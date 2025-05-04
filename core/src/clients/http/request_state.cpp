@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <map>
 #include <string_view>
 
 #include <cryptopp/osrng.h>
@@ -11,13 +10,13 @@
 #include <fmt/ranges.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
-#include <boost/range/adaptor/map.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 
 #include <curl-ev/error_code.hpp>
 #include <userver/baggage/baggage.hpp>
 #include <userver/clients/dns/resolver.hpp>
 #include <userver/clients/http/connect_to.hpp>
+#include <userver/http/url.hpp>
 #include <userver/server/request/task_inherited_data.hpp>
 #include <userver/utils/assert.hpp>
 #include <userver/utils/async.hpp>
@@ -52,13 +51,20 @@ constexpr Status kLeastHttpCodeForDeadlineExpired{400};
 
 constexpr Status kFakeHttpErrorCode{599};
 
-const std::string kTracingClientName = "external";
+const std::string kTracingClientName = "external/";
 
-const std::map<std::string, std::error_code> kTestsuiteActions = {
-    {"timeout", {curl::errc::EasyErrorCode::kOperationTimedout}},
-    {"network", {curl::errc::EasyErrorCode::kCouldNotConnect}}};
-const std::string kTestsuiteSupportedErrorsKey = "X-Testsuite-Supported-Errors";
-const std::string kTestsuiteSupportedErrors = fmt::to_string(fmt::join(boost::adaptors::keys(kTestsuiteActions), ","));
+constexpr utils::TrivialBiMap kTestsuiteActions = [](auto selector) {
+    return selector()
+        .Case("timeout", curl::errc::EasyErrorCode::kOperationTimedout)
+        .Case("network", curl::errc::EasyErrorCode::kCouldNotConnect);
+};
+
+constexpr std::string_view kTestsuiteSupportedErrorsKey = "X-Testsuite-Supported-Errors";
+
+std::string_view GetTestsuiteSupportedErrors() {
+    static_assert(kTestsuiteActions.size() == 2, "Fix the below line");
+    return "network,timeout";
+}
 
 std::error_code TestsuiteResponseHook(Status status_code, const Headers& headers, tracing::Span& span) {
     if (status_code == kFakeHttpErrorCode) {
@@ -68,12 +74,12 @@ std::error_code TestsuiteResponseHook(Status status_code, const Headers& headers
             LOG_INFO() << "Mockserver faked error of type " << it->second
                        << tracing::impl::LogSpanAsLastNoCurrent{span};
 
-            const auto error_it = kTestsuiteActions.find(it->second);
-            if (error_it != kTestsuiteActions.end()) {
-                return error_it->second;
+            const auto opt_value = kTestsuiteActions.TryFindByFirst(it->second);
+            if (opt_value) {
+                return std::error_code{*opt_value};
             }
 
-            utils::impl::AbortWithStacktrace(fmt::format(
+            utils::AbortWithStacktrace(fmt::format(
                 "Unsupported mockserver protocol X-Testsuite-Error header value: {}. "
                 "Try to update submodules and recompile project first. If it does "
                 "not help please contact testsuite support team.",
@@ -947,7 +953,7 @@ void RequestState::ApplyTestsuiteConfig() {
     if (!prefixes.empty()) {
         auto url = easy().get_original_url();
         if (!IsPrefix(url, prefixes) && !IsPrefix(url, allowed_urls_extra_)) {
-            utils::impl::AbortWithStacktrace(fmt::format(
+            utils::AbortWithStacktrace(fmt::format(
                 "{} forbidden by testsuite config, allowed prefixes={}, "
                 "extra prefixes={}",
                 url,
@@ -962,13 +968,15 @@ void RequestState::ApplyTestsuiteConfig() {
         set_timeout(std::chrono::milliseconds(*timeout).count());
     }
 
-    easy().add_header(kTestsuiteSupportedErrorsKey, kTestsuiteSupportedErrors);
+    easy().add_header(kTestsuiteSupportedErrorsKey, GetTestsuiteSupportedErrors());
 }
 
 void RequestState::StartNewSpan(utils::impl::SourceLocation location) {
     UINVARIANT(!span_storage_, "Attempt to reuse request while the previous one has not finished");
 
-    span_storage_.emplace(std::string{kTracingClientName}, location);
+    span_storage_.emplace(
+        kTracingClientName + USERVER_NAMESPACE::http::ExtractHostname(easy().get_original_url()), location
+    );
     auto& span = span_storage_->Get();
 
     auto request_editable_instance = GetEditableRequestInstance();

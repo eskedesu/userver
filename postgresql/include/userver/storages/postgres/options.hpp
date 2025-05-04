@@ -4,6 +4,7 @@
 /// @brief Options
 
 #include <chrono>
+#include <cstdint>
 #include <iosfwd>
 #include <optional>
 #include <string>
@@ -13,6 +14,7 @@
 #include <userver/storages/postgres/postgres_fwd.hpp>
 #include <userver/utils/impl/transparent_hash.hpp>
 #include <userver/utils/str_icase.hpp>
+#include <userver/utils/string_literal.hpp>
 
 USERVER_NAMESPACE_BEGIN
 
@@ -21,7 +23,7 @@ namespace storages::postgres {
 /*! [Isolation levels] */
 /// @brief SQL transaction isolation level
 /// @see https://www.postgresql.org/docs/current/static/sql-set-transaction.html
-enum class IsolationLevel {
+enum class IsolationLevel : std::uint16_t {
     kReadCommitted,   //!< READ COMMITTED
     kRepeatableRead,  //!< REPEATABLE READ
     kSerializable,    //!< SERIALIZABLE
@@ -52,7 +54,7 @@ std::ostream& operator<<(std::ostream&, IsolationLevel);
 /// @see https://www.postgresql.org/docs/current/static/sql-set-transaction.html
 struct TransactionOptions {
     /*! [Transaction modes] */
-    enum Mode {
+    enum Mode : std::uint16_t {
         kReadWrite = 0,
         kReadOnly = 1,
         kDeferrable = 3  //!< Deferrable transaction is read only
@@ -73,10 +75,10 @@ struct TransactionOptions {
     static constexpr TransactionOptions Deferrable() { return {IsolationLevel::kSerializable, kDeferrable}; }
 };
 
-constexpr inline bool operator==(const TransactionOptions& lhs, const TransactionOptions& rhs) {
+constexpr inline bool operator==(TransactionOptions lhs, TransactionOptions rhs) {
     return lhs.isolation_level == rhs.isolation_level && lhs.mode == rhs.mode;
 }
-const std::string& BeginStatement(const TransactionOptions&);
+USERVER_NAMESPACE::utils::StringLiteral BeginStatement(TransactionOptions opts) noexcept;
 
 /// A structure to control timeouts for PosrgreSQL queries
 ///
@@ -106,18 +108,20 @@ const std::string& BeginStatement(const TransactionOptions&);
 /// exception and the driver tries to clean up the connection for further reuse.
 struct CommandControl {
     /// Overall timeout for a command being executed
-    TimeoutDuration execute{};
+    TimeoutDuration network_timeout_ms{};
     /// PostgreSQL server-side timeout
-    TimeoutDuration statement{};
+    TimeoutDuration statement_timeout_ms{};
 
-    constexpr CommandControl(TimeoutDuration execute, TimeoutDuration statement)
-        : execute(execute), statement(statement) {}
+    constexpr CommandControl(TimeoutDuration network_timeout_ms, TimeoutDuration statement_timeout_ms)
+        : network_timeout_ms(network_timeout_ms), statement_timeout_ms(statement_timeout_ms) {}
 
-    constexpr CommandControl WithExecuteTimeout(TimeoutDuration n) const noexcept { return {n, statement}; }
+    constexpr CommandControl WithExecuteTimeout(TimeoutDuration n) const noexcept { return {n, statement_timeout_ms}; }
 
-    constexpr CommandControl WithStatementTimeout(TimeoutDuration s) const noexcept { return {execute, s}; }
+    constexpr CommandControl WithStatementTimeout(TimeoutDuration s) const noexcept { return {network_timeout_ms, s}; }
 
-    bool operator==(const CommandControl& rhs) const { return execute == rhs.execute && statement == rhs.statement; }
+    bool operator==(const CommandControl& rhs) const {
+        return network_timeout_ms == rhs.network_timeout_ms && statement_timeout_ms == rhs.statement_timeout_ms;
+    }
 
     bool operator!=(const CommandControl& rhs) const { return !(*this == rhs); }
 };
@@ -248,6 +252,8 @@ struct ConnectionSettings {
 
     /// Execute discard all after establishing a new connection
     DiscardOnConnectOptions discard_on_connect = kDiscardAll;
+
+    bool deadline_propagation_enabled = true;
 
     /// Helps keep track of the changes in settings
     SettingsVersion version{0U};

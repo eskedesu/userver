@@ -21,6 +21,8 @@
 #include <schemas/object_object.hpp>
 #include <schemas/object_single_field.hpp>
 #include <schemas/one_of.hpp>
+#include <schemas/oneofdiscriminator.hpp>
+#include <schemas/string64.hpp>
 #include <schemas/uuid.hpp>
 
 USERVER_NAMESPACE_BEGIN
@@ -45,14 +47,18 @@ TEST(Simple, DefaultFieldValue) {
 TEST(Simple, IntegerMinimum) {
     auto json = formats::json::MakeObject("int3", 1, "int", -10);
     UEXPECT_THROW_MSG(
-        json.As<ns::SimpleObject>(), chaotic::Error, "Error at path 'int': Invalid value, minimum=-1, given=-10"
+        json.As<ns::SimpleObject>(),
+        chaotic::Error<formats::json::Value>,
+        "Error at path 'int': Invalid value, minimum=-1, given=-10"
     );
 }
 
 TEST(Simple, IntegerMaximum) {
     auto json = formats::json::MakeObject("int3", 1, "int", 11);
     UEXPECT_THROW_MSG(
-        json.As<ns::SimpleObject>(), chaotic::Error, "Error at path 'int': Invalid value, maximum=10, given=11"
+        json.As<ns::SimpleObject>(),
+        chaotic::Error<formats::json::Value>,
+        "Error at path 'int': Invalid value, maximum=10, given=11"
     );
 }
 
@@ -78,7 +84,9 @@ TEST(Simple, IntegerFormat) {
 TEST(Simple, ObjectWithRefType) {
     auto json = formats::json::MakeObject("integer", 0);
     UEXPECT_THROW_MSG(
-        json.As<ns::ObjectWithRef>(), chaotic::Error, "Error at path 'integer': Invalid value, minimum=1, given=0"
+        json.As<ns::ObjectWithRef>(),
+        chaotic::Error<formats::json::Value>,
+        "Error at path 'integer': Invalid value, minimum=1, given=0"
     );
 }
 
@@ -141,7 +149,9 @@ TEST(Simple, ObjectExtraMemberFalse) {
 TEST(Simple, ObjectWithAdditionalPropertiesFalseStrict) {
     auto json = formats::json::MakeObject("foo", 1, "bar", 2);
     UEXPECT_THROW_MSG(
-        json.As<ns::ObjectWithAdditionalPropertiesFalseStrict>(), std::runtime_error, "Unknown property 'bar'"
+        json.As<ns::ObjectWithAdditionalPropertiesFalseStrict>(),
+        chaotic::Error<formats::json::Value>,
+        "Unknown property 'bar'"
     );
 }
 
@@ -156,8 +166,8 @@ TEST(Simple, IntegerEnum) {
     auto json2 = formats::json::MakeObject("one", 5);
     UEXPECT_THROW_MSG(
         json2["one"].As<ns::IntegerEnum>(),
-        chaotic::Error,
-        "Error at path 'one': Invalid enum value (5) for type ns::IntegerEnum"
+        chaotic::Error<formats::json::Value>,
+        "Error at path 'one': Invalid enum value (5) for type ::ns::IntegerEnum"
     );
 
     EXPECT_EQ(std::size(ns::kIntegerEnumValues), 3);
@@ -181,8 +191,8 @@ TEST(Simple, StringEnum) {
     auto json2 = formats::json::MakeObject("one", "zoo");
     UEXPECT_THROW_MSG(
         json2["one"].As<ns::StringEnum>(),
-        chaotic::Error,
-        "Error at path 'one': Invalid enum value (zoo) for type ns::StringEnum"
+        chaotic::Error<formats::json::Value>,
+        "Error at path 'one': Invalid enum value (zoo) for type ::ns::StringEnum"
     );
 
     EXPECT_EQ("foo", ToString(ns::StringEnum::kFoo));
@@ -193,14 +203,14 @@ TEST(Simple, StringEnum) {
     UEXPECT_THROW_MSG(
         FromString("zoo", formats::parse::To<ns::StringEnum>{}),
         std::runtime_error,
-        "Invalid enum value (zoo) for type ns::StringEnum"
+        "Invalid enum value (zoo) for type ::ns::StringEnum"
     );
 
     EXPECT_EQ(Parse("foo", formats::parse::To<ns::StringEnum>{}), ns::StringEnum::kFoo);
     UEXPECT_THROW_MSG(
         Parse("zoo", formats::parse::To<ns::StringEnum>{}),
         std::runtime_error,
-        "Invalid enum value (zoo) for type ns::StringEnum"
+        "Invalid enum value (zoo) for type ::ns::StringEnum"
     );
 
     EXPECT_EQ(std::size(ns::kStringEnumValues), 3);
@@ -211,6 +221,22 @@ TEST(Simple, StringEnum) {
         EXPECT_EQ(value, values[index]);
         ++index;
     }
+}
+
+TEST(Simple, StringEnumPgInteraction) {
+    auto str = ToString(ns::StringEnum::kFoo);
+    static_assert(
+        std::is_same_v<decltype(str), std::string>,
+        "storages::postgres::io::Codegen requires ToString(enum) that returns a string"
+    );
+    EXPECT_EQ(str, "foo");
+
+    auto result = Parse("foo", formats::parse::To<ns::StringEnum>{});
+    static_assert(
+        std::is_same_v<decltype(result), ns::StringEnum>,
+        "storages::postgres::io::Codegen requires Parse(string_view, To<E>) that returns an enum E"
+    );
+    EXPECT_EQ(result, ns::StringEnum::kFoo);
 }
 
 TEST(Simple, AllOf) {
@@ -242,6 +268,11 @@ TEST(Simple, OneOfWithDiscriminator) {
 
     auto json_back = formats::json::ValueBuilder{obj}.ExtractValue();
     EXPECT_EQ(json_back, json) << ToString(json_back);
+}
+
+TEST(Simple, OneOfWithDiscriminatorMapping) {
+    EXPECT_EQ(ns::IntegerOneOfDiscriminator::kFoo_Settings.mapping.Describe(), "'42', '52'");
+    EXPECT_EQ(ns::OneOfDiscriminator::kFoo_Settings.mapping.Describe(), "'aaa', 'bbb'");
 }
 
 TEST(Simple, Indirect) {
@@ -335,6 +366,17 @@ TEST(Simple, Uuid) {
 
     auto str = Serialize(obj, formats::serialize::To<formats::json::Value>())["uuid"].As<std::string>();
     EXPECT_EQ(str, uuid);
+}
+
+TEST(SIMPLE, String64) {
+    auto str64 = crypto::base64::String64{"hello, userver!"};
+    auto obj = ns::ObjectString64{str64};
+
+    auto str = Serialize(obj, formats::serialize::To<formats::json::Value>())["value"].As<std::string>();
+    EXPECT_EQ(str, "aGVsbG8sIHVzZXJ2ZXIh");
+
+    auto new_obj = formats::json::MakeObject("value", str).As<ns::ObjectString64>();
+    EXPECT_EQ(new_obj.value, str64);
 }
 
 USERVER_NAMESPACE_END

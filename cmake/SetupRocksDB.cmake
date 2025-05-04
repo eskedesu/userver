@@ -18,12 +18,12 @@ find_package(libgflags REQUIRED)
 find_package(libsnappy REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(BZip2 REQUIRED)
-find_package(libzstd REQUIRED)
+find_package(zstd REQUIRED)
 
 include(DownloadUsingCPM)
 
 CPMAddPackage(
-  NAME rocksdb
+  NAME RocksDB
   GITHUB_REPOSITORY facebook/rocksdb
   GIT_TAG v9.7.4
   OPTIONS
@@ -38,7 +38,10 @@ CPMAddPackage(
   "WITH_TRACE_TOOLS OFF"
   "USE_RTTI ON"
   "GFLAGS_SHARED FALSE"
+  "CMAKE_SKIP_INSTALL_RULES ON"
 )
 
 mark_targets_as_system("${rocksdb_SOURCE_DIR}")
-add_library(RocksDB::rocksdb ALIAS rocksdb)
+if(NOT TARGET RocksDB::rocksdb)
+  add_library(RocksDB::rocksdb ALIAS rocksdb)
+endif()

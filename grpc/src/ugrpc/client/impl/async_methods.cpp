@@ -10,14 +10,14 @@
 #include <userver/utils/assert.hpp>
 #include <userver/utils/impl/source_location.hpp>
 
-#include <ugrpc/client/impl/client_configs.hpp>
 #include <ugrpc/impl/rpc_metadata.hpp>
-#include <ugrpc/impl/status.hpp>
 #include <userver/tracing/opentelemetry.hpp>
 #include <userver/ugrpc/client/exceptions.hpp>
-#include <userver/ugrpc/impl/deadline_timepoint.hpp>
+#include <userver/ugrpc/deadline_timepoint.hpp>
 #include <userver/ugrpc/impl/to_string.hpp>
 #include <userver/ugrpc/status_codes.hpp>
+
+#include <dynamic_config/variables/USERVER_GRPC_CLIENT_ENABLE_DEADLINE_PROPAGATION.hpp>
 
 USERVER_NAMESPACE_BEGIN
 
@@ -62,24 +62,21 @@ void SetErrorAndResetSpan(RpcData& data, const std::string& error_message) {
     data.ResetSpan();
 }
 
-}  // namespace
-
-void SetStatusDetailsForSpan(
-    tracing::Span& span,
-    const grpc::Status& status,
-    const std::optional<std::string>& error_details
-) {
-    span.AddTag("grpc_code", std::string{ugrpc::ToString(status.error_code())});
+void SetStatusDetailsForSpan(tracing::Span& span, const grpc::Status& status) {
+    span.AddTag("grpc_code", ugrpc::ToString(status.error_code()));
     if (!status.ok()) {
-        SetErrorForSpan(span, error_details.value_or(status.error_message()));
+        SetErrorForSpan(span, status.error_message());
     }
 }
 
+}  // namespace
+
 RpcConfigValues::RpcConfigValues(const dynamic_config::Snapshot& config)
-    : enforce_task_deadline(config[kEnforceClientTaskDeadline]) {}
+    : enforce_task_deadline(config[::dynamic_config::USERVER_GRPC_CLIENT_ENABLE_DEADLINE_PROPAGATION]) {}
 
 RpcData::RpcData(impl::CallParams&& params, CallKind call_kind)
-    : context_(std::move(params.context)),
+    : stub_(std::move(params.stub)),
+      context_(std::move(params.context)),
       client_name_(params.client_name),
       call_name_(std::move(params.call_name)),
       stats_scope_(params.statistics),
@@ -101,6 +98,8 @@ RpcData::~RpcData() {
         context_->TryCancel();
     }
 }
+
+ClientData::StubHandle& RpcData::GetStub() noexcept { return stub_; }
 
 const grpc::ClientContext& RpcData::GetContext() const noexcept {
     UASSERT(context_);
@@ -239,8 +238,6 @@ void RpcData::SetStatusExtracted() noexcept {
 
 grpc::Status& RpcData::GetStatus() noexcept { return status_; }
 
-ParsedGStatus& RpcData::GetParsedGStatus() noexcept { return parsed_g_status_; }
-
 RpcData::AsyncMethodInvocationGuard::AsyncMethodInvocationGuard(RpcData& data) noexcept : data_(data) {
     UASSERT(!std::holds_alternative<std::monostate>(data_.invocation_));
 }
@@ -272,11 +269,28 @@ void PrepareFinish(RpcData& data) {
     data.SetFinished();
 }
 
+void ProcessFinish(RpcData& data, utils::function_ref<void(RpcData& data, const grpc::Status& status)> post_finish) {
+    const auto& status = data.GetStatus();
+
+    data.GetStatsScope().OnExplicitFinish(status.error_code());
+    data.GetStatsScope().Flush();
+
+    post_finish(data, status);
+
+    SetStatusDetailsForSpan(data.GetSpan(), status);
+    data.ResetSpan();
+}
+
+void CheckFinishStatus(RpcData& data) {
+    auto& status = data.GetStatus();
+    if (!status.ok()) {
+        ThrowErrorWithStatus(data.GetCallName(), std::move(status));
+    }
+}
+
 void ProcessFinishResult(
     RpcData& data,
     AsyncMethodInvocation::WaitStatus wait_status,
-    grpc::Status&& status,
-    ParsedGStatus&& parsed_gstatus,
     utils::function_ref<void(RpcData& data, const grpc::Status& status)> post_finish,
     bool throw_on_error
 ) {
@@ -286,23 +300,11 @@ void ProcessFinishResult(
         "ok=false in async Finish method invocation is prohibited "
         "by gRPC docs, see grpc::CompletionQueue::Next"
     );
-    data.GetStatsScope().OnExplicitFinish(status.error_code());
-    data.GetStatsScope().Flush();
 
-    post_finish(data, status);
+    ProcessFinish(data, post_finish);
 
-    SetStatusDetailsForSpan(data.GetSpan(), status, parsed_gstatus.gstatus_string);
-    data.ResetSpan();
-
-    if (!status.ok()) {
-        if (throw_on_error) {
-            impl::ThrowErrorWithStatus(
-                data.GetCallName(),
-                std::move(status),
-                std::move(parsed_gstatus.gstatus),
-                std::move(parsed_gstatus.gstatus_string)
-            );
-        }
+    if (throw_on_error) {
+        CheckFinishStatus(data);
     }
 }
 

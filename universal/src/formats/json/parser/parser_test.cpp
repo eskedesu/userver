@@ -2,20 +2,12 @@
 
 #include <unordered_map>
 
+#include <userver/compiler/demangle.hpp>
 #include <userver/formats/json/parser/parser.hpp>
 #include <userver/formats/json/serialize.hpp>
 
-// TODO: move to utest/*
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define EXPECT_THROW_TEXT(code, exception_type, exc_text)                                             \
-    try {                                                                                             \
-        code;                                                                                         \
-        FAIL() << "expected exception " #exception_type ", but not thrown";                           \
-    } catch (const exception_type& e) {                                                               \
-        EXPECT_EQ(e.what(), std::string{exc_text}) << "wrong exception message";                      \
-    } catch (const std::exception& e) {                                                               \
-        FAIL() << "wrong exception type, expected " #exception_type ", but got " << typeid(e).name(); \
-    }
+#define EXPECT_THROW_TEXT(code, exception_type, exc_text) UEXPECT_THROW_MSG(code, exception_type, exc_text)
 
 USERVER_NAMESPACE_BEGIN
 namespace fjp = formats::json::parser;
@@ -88,9 +80,12 @@ TEST(JsonStringParser, Int64Overflow) {
     EXPECT_THROW_TEXT(
         (fjp::ParseToType<int64_t, fjp::Int64Parser>(input)),
         fjp::ParseError,
-        "Parse error at pos 20, path '': bad "
-        "numeric conversion: positive overflow, the latest token "
-        "was 18446744073709551615"
+        fmt::format(
+            "Parse error at pos 20, path '': Failed to convert {} 18446744073709551615 into {} "
+            "due to positive integer overflow, the latest token was 18446744073709551615",
+            compiler::GetTypeName<std::uint64_t>(),
+            compiler::GetTypeName<std::int64_t>()
+        )
     );
 }
 
@@ -264,6 +259,11 @@ TEST(JsonStringParser, ArrayBool) {
     std::string input{"[true, false, true]"};
     std::vector<bool> result;
 
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ <= 9
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=59124
+#endif
+
     fjp::BoolParser bool_parser;
     fjp::ArrayParser<bool, fjp::BoolParser> parser(bool_parser);
     fjp::SubscriberSink<decltype(result)> sink(result);
@@ -274,6 +274,10 @@ TEST(JsonStringParser, ArrayBool) {
     state.PushParser(parser);
     state.ProcessInput(input);
     EXPECT_EQ(result, (std::vector<bool>{true, false, true}));
+
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ <= 9
+#pragma GCC diagnostic pop
+#endif
 }
 
 template <class T>

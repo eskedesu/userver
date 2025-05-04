@@ -17,6 +17,7 @@
 #include <userver/utils/datetime.hpp>
 #include <userver/utils/impl/cached_time.hpp>
 #include <userver/utils/impl/wait_token_storage.hpp>
+#include <userver/utils/statistics/writer.hpp>
 
 USERVER_NAMESPACE_BEGIN
 
@@ -133,6 +134,10 @@ public:
 
     /// Erase key from cache
     void InvalidateByKey(const Key& key);
+
+    /// Erase key from cache conditionally
+    template <typename Predicate>
+    void InvalidateByKeyIf(const Key& key, Predicate pred);
 
     /// Add async task for updating value by update_func(key)
     void UpdateInBackground(const Key& key, UpdateValueFunc update_func);
@@ -330,9 +335,22 @@ void ExpirableLruCache<Key, Value, Hash, Equal>::InvalidateByKey(const Key& key)
 }
 
 template <typename Key, typename Value, typename Hash, typename Equal>
+template <typename Predicate>
+void ExpirableLruCache<Key, Value, Hash, Equal>::InvalidateByKeyIf(const Key& key, Predicate pred) {
+    auto now = utils::datetime::SteadyNow();
+
+    auto mutex = mutex_set_.GetMutexForKey(key);
+    std::lock_guard lock(mutex);
+    const auto cur_value = lru_.Get(key);
+
+    if (cur_value.has_value() && !IsExpired(cur_value->update_time, now) && pred(cur_value->value)) {
+        InvalidateByKey(key);
+    }
+}
+
+template <typename Key, typename Value, typename Hash, typename Equal>
 void ExpirableLruCache<Key, Value, Hash, Equal>::UpdateInBackground(const Key& key, UpdateValueFunc update_func) {
-    stats_.total.background_updates++;
-    stats_.recent.GetCurrentCounter().background_updates++;
+    impl::CacheBackgroundUpdate(stats_);
 
     // cache will wait for all detached tasks in ~ExpirableLruCache()
     engine::AsyncNoSpan([token = wait_token_storage_.GetToken(), this, key, update_func = std::move(update_func)] {
@@ -386,6 +404,11 @@ public:
     std::optional<Value> GetOptional(const Key& key) { return cache_->GetOptional(key, update_func_); }
 
     void InvalidateByKey(const Key& key) { cache_->InvalidateByKey(key); }
+
+    template <typename Predicate>
+    void InvalidateByKeyIf(const Key& key, Predicate pred) {
+        cache_->InvalidateByKeyIf(key, pred);
+    }
 
     /// Update cached value in background
     void UpdateInBackground(const Key& key) { cache_->UpdateInBackground(key, update_func_); }

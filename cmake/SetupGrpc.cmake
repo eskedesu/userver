@@ -77,11 +77,10 @@ CPMAddPackage(
     "gRPC_BUILD_GRPC_OBJECTIVE_C_PLUGIN OFF"
     "gRPC_BUILD_GRPC_PHP_PLUGIN OFF"
     "gRPC_BUILD_GRPC_RUBY_PLUGIN OFF"
+    "gRPC_BUILD_GRPC_CSHARP_PLUGIN OFF"
     "gRPC_ZLIB_PROVIDER package"
     "gRPC_CARES_PROVIDER package"
-    # TODO if we ever decide to use re2 ourselves, this will be a conflict
-    # TODO should use 'package' and download it using CPM instead
-    "gRPC_RE2_PROVIDER module"
+    "gRPC_RE2_PROVIDER package"
     "gRPC_SSL_PROVIDER package"
     "gRPC_PROTOBUF_PROVIDER package"
     "gRPC_BENCHMARK_PROVIDER none"
@@ -104,3 +103,17 @@ if (NOT TARGET "gRPC::grpcpp_channelz")
     add_library(gRPC::grpcpp_channelz ALIAS grpcpp_channelz)
 endif()
 mark_targets_as_system("${gRPC_SOURCE_DIR}")
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 19.0)
+    userver_is_cxx_compile_option_supported(
+        COMPILER_HAS_MISSING_TEMPLATE_ARG_LIST_AFTER_TEMPLATE_KW
+        -Wno-error=missing-template-arg-list-after-template-kw
+    )
+    if (COMPILER_HAS_MISSING_TEMPLATE_ARG_LIST_AFTER_TEMPLATE_KW)
+        foreach(package grpc grpc++ grpc_unsecure grpc++_unsecure grpc_authorization_provider)
+            target_compile_options(${package} PRIVATE
+                "$<$<COMPILE_LANGUAGE:CXX>:-Wno-error=missing-template-arg-list-after-template-kw>"
+            )
+        endforeach()
+    endif()
+endif()

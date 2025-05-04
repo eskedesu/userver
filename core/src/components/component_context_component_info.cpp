@@ -2,20 +2,31 @@
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
+#include <boost/range/adaptor/transformed.hpp>
 
 #include <userver/components/component_context.hpp>
 #include <userver/logging/log.hpp>
 #include <userver/tracing/tracer.hpp>
+#include <userver/utils/string_literal.hpp>
 
 USERVER_NAMESPACE_BEGIN
 
-namespace {
-const std::string kComponentName = "component_name";
-const std::string kStopComponentRootName = "component_stop";
-const std::string kOnAllComponentsAreStopping = "on_all_components_are_stopping";
-}  // namespace
-
 namespace components::impl {
+
+namespace {
+
+constexpr utils::StringLiteral kComponentName = "component_name";
+constexpr utils::StringLiteral kStopComponentRootName = "component_stop";
+constexpr utils::StringLiteral kOnAllComponentsAreStopping = "on_all_components_are_stopping";
+
+template <typename Range>
+std::string JoinNamesFromInfoImpl(const Range& component_info_refs, std::string_view separator) {
+    return fmt::to_string(fmt::join(
+        component_info_refs | boost::adaptors::transformed([](auto info) { return info->GetName(); }), separator
+    ));
+}
+
+}  // namespace
 
 StageSwitchingCancelledException::StageSwitchingCancelledException(const std::string& message)
     : std::runtime_error(message) {}
@@ -36,8 +47,8 @@ void ComponentInfo::SetComponent(std::unique_ptr<RawComponentBase>&& component) 
 
 void ComponentInfo::ClearComponent() {
     if (!HasComponent()) return;
-    tracing::Span span(kStopComponentRootName);
-    span.AddTag(kComponentName, name_);
+    tracing::Span span(std::string{kStopComponentRootName});
+    span.AddTag(std::string{kComponentName}, name_);
 
     auto component = ExtractComponent();
     LOG_DEBUG() << "Stopping component";
@@ -57,7 +68,7 @@ RawComponentBase* ComponentInfo::WaitAndGetComponent() const {
     return component_.get();
 }
 
-void ComponentInfo::AddItDependsOn(ComponentNameFromInfo component) {
+void ComponentInfo::AddItDependsOn(ComponentInfo& component) {
     std::lock_guard lock{mutex_};
     UASSERT_MSG(
         stage_ == ComponentLifetimeStage::kNull,
@@ -67,7 +78,7 @@ void ComponentInfo::AddItDependsOn(ComponentNameFromInfo component) {
     it_depends_on_.insert(component);
 }
 
-void ComponentInfo::AddDependsOnIt(ComponentNameFromInfo component) {
+void ComponentInfo::AddDependsOnIt(ComponentInfo& component) {
     std::lock_guard lock{mutex_};
     UASSERT_MSG(
         stage_ == ComponentLifetimeStage::kNull || stage_ == ComponentLifetimeStage::kCreated,
@@ -77,7 +88,7 @@ void ComponentInfo::AddDependsOnIt(ComponentNameFromInfo component) {
     depends_on_it_.insert(component);
 }
 
-bool ComponentInfo::CheckItDependsOn(ComponentNameFromInfo component) const {
+bool ComponentInfo::CheckItDependsOn(ComponentInfo& component) const {
     std::unique_lock lock{mutex_};
     if (stage_ != ComponentLifetimeStage::kNull) {
         lock.unlock();
@@ -86,7 +97,7 @@ bool ComponentInfo::CheckItDependsOn(ComponentNameFromInfo component) const {
     return it_depends_on_.find(component) != it_depends_on_.end();
 }
 
-bool ComponentInfo::CheckDependsOnIt(ComponentNameFromInfo component) const {
+bool ComponentInfo::CheckDependsOnIt(ComponentInfo& component) const {
     std::unique_lock lock{mutex_};
     if (stage_ != ComponentLifetimeStage::kNull && stage_ != ComponentLifetimeStage::kCreated) {
         lock.unlock();
@@ -123,7 +134,7 @@ void ComponentInfo::OnAllComponentsLoaded() {
 void ComponentInfo::OnAllComponentsAreStopping() {
     if (!HasComponent()) return;
     try {
-        tracing::Span span(kOnAllComponentsAreStopping);
+        tracing::Span span(std::string{kOnAllComponentsAreStopping});
         component_->OnAllComponentsAreStopping();
     } catch (const std::exception& ex) {
         LOG_ERROR() << "OnAllComponentsAreStopping() failed for component " << name_ << ": " << ex;
@@ -155,7 +166,7 @@ std::string ComponentInfo::GetDependencies() const {
     }
 
     auto delimiter = fmt::format(R"("; "{}" -> ")", name_);
-    return fmt::format(R"("{}" -> "{}" )", name_, fmt::join(it_depends_on_, delimiter));
+    return fmt::format(R"("{}" -> "{}" )", name_, JoinNamesFromInfo(it_depends_on_, delimiter));
 }
 
 bool ComponentInfo::HasComponent() const {
@@ -170,6 +181,14 @@ std::unique_ptr<RawComponentBase> ComponentInfo::ExtractComponent() {
         std::swap(component, component_);
     }
     return component;
+}
+
+std::string JoinNamesFromInfo(const std::vector<ConstComponentInfoRef>& container, std::string_view separator) {
+    return JoinNamesFromInfoImpl(container, separator);
+}
+
+std::string JoinNamesFromInfo(const std::set<ComponentInfoRef>& container, std::string_view separator) {
+    return JoinNamesFromInfoImpl(container, separator);
 }
 
 }  // namespace components::impl

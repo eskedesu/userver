@@ -24,22 +24,21 @@
 #include <userver/utils/impl/static_registration.hpp>
 #include <userver/utils/impl/userver_experiments.hpp>
 #include <userver/utils/overloaded.hpp>
+#include <userver/utils/regex.hpp>
 #include <userver/utils/strerror.hpp>
+#include <userver/utils/string_literal.hpp>
 #include <userver/utils/traceful_exception.hpp>
 
 #include <components/manager.hpp>
 #include <components/manager_config.hpp>
 #include <logging/config.hpp>
 #include <logging/tp_logger_utils.hpp>
+#include <server/handlers/auth/apikey/factories.hpp>
 #include <utils/ignore_signal_scope.hpp>
 #include <utils/jemalloc.hpp>
 #include <utils/signal_catcher.hpp>
 
 USERVER_NAMESPACE_BEGIN
-
-namespace server::handlers::auth::apikey {
-extern int auth_checker_apikey_module_activation;
-}  // namespace server::handlers::auth::apikey
 
 namespace components {
 
@@ -107,7 +106,7 @@ void PreheatStacktraceCollector() {
 }
 
 bool IsTraced() {
-    static const std::string kTracerField = "TracerPid:\t";
+    static constexpr utils::StringLiteral kTracerField = "TracerPid:\t";
 
     try {
         // /proc is only available on linux,
@@ -200,7 +199,7 @@ void DoRun(
         ParseManagerConfigAndSetupLogging(log_scope, config, config_vars_path, config_vars_override_path);
 
     utils::impl::UserverExperimentsScope experiments_scope;
-    std::optional<Manager> manager;
+    std::optional<impl::Manager> manager;
 
     try {
         experiments_scope.EnableOnly(manager_config.enabled_experiments);

@@ -1,17 +1,16 @@
 #pragma once
 
 /// @file userver/ugrpc/server/middlewares/headers_propagator/component.hpp
-/// @brief @copybrief
-/// ugrpc::server::middlewares::headers_propagator::Component
+/// @brief @copybrief ugrpc::server::middlewares::headers_propagator::Component
 
 #include <userver/ugrpc/server/middlewares/base.hpp>
 
 USERVER_NAMESPACE_BEGIN
 
 /// Server headers_propagator middleware
+/// @see @ref scripts/docs/en/userver/grpc/server_middlewares.md
+/// @see @ref ugrpc::server::middlewares::headers_propagator::Component
 namespace ugrpc::server::middlewares::headers_propagator {
-
-// clang-format off
 
 /// @ingroup userver_components userver_base_classes
 ///
@@ -21,10 +20,10 @@ namespace ugrpc::server::middlewares::headers_propagator {
 /// Name | Description | Default value
 /// ---- | ----------- | -------------
 /// headers | array of metadata fields (headers) to propagate | empty
+///
+/// @see @ref scripts/docs/en/userver/grpc/server_middlewares.md
 
-// clang-format on
-
-class Component final : public MiddlewareComponentBase {
+class Component final : public MiddlewareFactoryComponentBase {
 public:
     /// @ingroup userver_component_names
     /// @brief The default name of
@@ -33,14 +32,23 @@ public:
 
     Component(const components::ComponentConfig& config, const components::ComponentContext& context);
 
-    std::shared_ptr<MiddlewareBase> GetMiddleware() override;
-
     static yaml_config::Schema GetStaticConfigSchema();
 
-private:
-    const std::vector<std::string> headers_;
+    yaml_config::Schema GetMiddlewareConfigSchema() const override;
+
+    std::shared_ptr<const MiddlewareBase> CreateMiddleware(
+        const ugrpc::server::ServiceInfo&,
+        const yaml_config::YamlConfig& middleware_config
+    ) const override;
 };
 
 }  // namespace ugrpc::server::middlewares::headers_propagator
+
+template <>
+inline constexpr bool components::kHasValidate<ugrpc::server::middlewares::headers_propagator::Component> = true;
+
+template <>
+inline constexpr auto components::kConfigFileMode<ugrpc::server::middlewares::headers_propagator::Component> =
+    ConfigFileMode::kNotRequired;
 
 USERVER_NAMESPACE_END

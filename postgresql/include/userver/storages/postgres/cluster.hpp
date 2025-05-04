@@ -98,6 +98,9 @@ public:
     /// @param default_cmd_ctls default command execution options
     /// @param testsuite_pg_ctl command execution options customizer for testsuite
     /// @param ei_settings error injection settings
+    /// @param testsuite_tasks see @ref testsuite::TestsuiteTasks
+    /// @param config_source see @ref dynamic_config::Source
+    /// @param shard_number shard number
     /// @note When `max_connection_pool_size` is reached, and no idle connections
     /// available, `PoolError` is thrown for every new connection
     /// request
@@ -174,6 +177,8 @@ public:
 
     /// @brief Execute a statement at host of specified type.
     /// @note You must specify at least one role from ClusterHostType here
+    /// @note You may write a query in `.sql` file and generate a header file with Query from it.
+    ///       See @ref scripts/docs/en/userver/sql_files.md for more information.
     ///
     /// @snippet storages/postgres/tests/landing_test.cpp Exec sample
     ///
@@ -186,6 +191,8 @@ public:
     /// @brief Execute a statement with specified host selection rules and command
     /// control settings.
     /// @note You must specify at least one role from ClusterHostType here
+    /// @note You may write a query in `.sql` file and generate a header file with Query from it.
+    ///       See @ref scripts/docs/en/userver/sql_files.md for more information.
     ///
     /// @warning Do NOT create a query string manually by embedding arguments!
     /// It leads to vulnerabilities and bad performance. Either pass arguments
@@ -195,6 +202,8 @@ public:
 
     /// @brief Execute a statement with stored arguments and specified host
     /// selection rules.
+    /// @note You may write a query in `.sql` file and generate a header file with Query from it.
+    ///       See @ref scripts/docs/en/userver/sql_files.md for more information.
     ///
     /// @warning Do NOT create a query string manually by embedding arguments!
     /// It leads to vulnerabilities and bad performance. Either pass arguments
@@ -203,6 +212,8 @@ public:
 
     /// @brief Execute a statement with stored arguments, specified host selection
     /// rules and command control settings.
+    /// @note You may write a query in `.sql` file and generate a header file with Query from it.
+    ///       See @ref scripts/docs/en/userver/sql_files.md for more information.
     ///
     /// @warning Do NOT create a query string manually by embedding arguments!
     /// It leads to vulnerabilities and bad performance. Either pass arguments

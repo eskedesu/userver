@@ -25,6 +25,8 @@
 #include <userver/storages/mongo/exception.hpp>
 #include <userver/storages/mongo/mongo_error.hpp>
 
+#include <dynamic_config/variables/MONGO_DEADLINE_PROPAGATION_ENABLED_V2.hpp>
+
 USERVER_NAMESPACE_BEGIN
 
 namespace storages::mongo::impl::cdriver {
@@ -301,7 +303,7 @@ CDriverPoolImpl::CDriverPoolImpl(
 )
     : PoolImpl(std::move(id), config, config_source),
       app_name_(config.app_name),
-      init_data_{dns_resolver, {}},
+      init_data_{dns_resolver, {}, {}},
       max_size_(config.pool_settings.max_size),
       idle_limit_(config.pool_settings.idle_limit),
       queue_timeout_(config.queue_timeout),
@@ -440,7 +442,7 @@ CDriverPoolImpl::ConnPtr CDriverPoolImpl::Pop() {
     std::optional<engine::Deadline::Duration> inherited_timeout{};
 
     const auto dynamic_config = GetConfig();
-    if (dynamic_config[kDeadlinePropagationEnabled]) {
+    if (dynamic_config[::dynamic_config::MONGO_DEADLINE_PROPAGATION_ENABLED_V2]) {
         HandleCancellations(queue_deadline, inherited_timeout);
     }
 

@@ -69,6 +69,24 @@ TEST(SmallString, Append) {
     EXPECT_EQ(str, "abcdabcd");
 }
 
+TEST(SmallString, AppendCharChar) {
+    utils::SmallString<2> str("a");
+    const char* other = "foobar";
+
+    str.append(other + 3, other + 6);
+    EXPECT_EQ(str, "abar");
+    str.append(other, other + 3);
+    EXPECT_EQ(str, "abarfoo");
+}
+
+TEST(SmallString, Insert) {
+    constexpr std::string_view data{"ab"};
+
+    utils::SmallString<3> str("c");
+    str.insert(str.begin(), data.begin(), data.end());
+    EXPECT_EQ(str, "abc");
+}
+
 TEST(SmallString, SizeCapacity) {
     utils::SmallString<10> str("abcd");
     str.resize(3, '1');
@@ -151,6 +169,12 @@ TEST(SmallString, Format) {
     utils::SmallString<3> str1("abcd");
     utils::SmallString<5> str2("1234");
     EXPECT_EQ("abcd1234", fmt::format("{}{}", str1, str2));
+}
+
+TEST(SmallString, FormatTo) {
+    utils::SmallString<6> str("abc");
+    fmt::format_to(std::back_inserter(str), "d={}", 1);
+    EXPECT_EQ("abcd=1", str);
 }
 
 TEST(SmallString, Iterator) {

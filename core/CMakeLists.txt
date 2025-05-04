@@ -1,6 +1,7 @@
 project(userver-core CXX)
 
 include(GetUserverVersion)
+include(ChaoticGen)
 message(STATUS "Userver version ${USERVER_VERSION}")
 
 include(CheckFunctionExists)
@@ -54,22 +55,23 @@ find_package(Boost REQUIRED CONFIG COMPONENTS
 find_package_required(ZLIB "zlib1g-dev")
 
 find_package(Iconv REQUIRED)
+
+_userver_macos_set_default_dir(OPENSSL_ROOT_DIR "brew;--prefix;openssl")
 find_package_required(OpenSSL "libssl-dev")
 
-if (USERVER_CONAN)
-    find_package(c-ares REQUIRED CONFIG)
-    find_package(CURL REQUIRED CONFIG)
-    find_package(cryptopp REQUIRED CONFIG)
-    find_package(libnghttp2 REQUIRED CONFIG)
-    find_package(libev REQUIRED CONFIG)
+find_package(libnghttp2 REQUIRED)
+find_package(libev REQUIRED)
 
-    find_package(concurrentqueue REQUIRED CONFIG)
+if (USERVER_CONAN)
+    find_package(c-ares REQUIRED)
+    find_package(CURL REQUIRED)
+    find_package(cryptopp REQUIRED)
+
+    find_package(concurrentqueue REQUIRED)
 else()
     include(SetupCAres)
     include(SetupCURL)
     include(SetupCryptoPP)
-    find_package(Nghttp2 REQUIRED)
-    find_package(LibEv REQUIRED)
 endif()
 
 add_library(${PROJECT_NAME} STATIC ${SOURCES})
@@ -89,10 +91,14 @@ else()
   target_link_libraries(${PROJECT_NAME} PRIVATE userver-librseq)
 endif()
 
+if (NOT USERVER_FEATURE_STACK_USAGE_MONITOR)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE USERVER_DISABLE_STACK_USAGE_MONITOR)
+endif()
+
 # https://github.com/jemalloc/jemalloc/issues/820
 if (USERVER_FEATURE_JEMALLOC AND NOT USERVER_SANITIZE AND NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
   set_property(
-    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/jemalloc.cpp
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/jemalloc.cpp ${CMAKE_CURRENT_SOURCE_DIR}/src/server/handlers/jemalloc.cpp
     APPEND PROPERTY COMPILE_FLAGS -DUSERVER_FEATURE_JEMALLOC_ENABLED=1
   )
 endif()
@@ -106,7 +112,6 @@ target_link_libraries(${PROJECT_NAME}
     Boost::filesystem
     Boost::program_options
     Boost::iostreams
-    Boost::regex
     Iconv::Iconv
     OpenSSL::Crypto
     OpenSSL::SSL
@@ -161,26 +166,20 @@ else()
     )
 endif()
 
+target_link_libraries(${PROJECT_NAME}
+  PUBLIC
+    c-ares::cares
+  PRIVATE
+    cryptopp::cryptopp
+    libev::libev
+    libnghttp2::nghttp2
+)
+
 if (USERVER_CONAN)
     target_link_libraries(${PROJECT_NAME}
-      PUBLIC
-        c-ares::cares
-        concurrentqueue::concurrentqueue
-      PRIVATE
-        cryptopp::cryptopp
-        libev::libev
-        libnghttp2::nghttp2
+      PUBLIC concurrentqueue::concurrentqueue
     )
 else()
-    target_link_libraries(${PROJECT_NAME}
-      PUBLIC
-        c-ares::cares
-      PRIVATE
-        CryptoPP
-        Nghttp2
-        LibEv
-    )
-
     target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC
          $<BUILD_INTERFACE:${USERVER_THIRD_PARTY_DIRS}/moodycamel/include>
     )
@@ -225,6 +224,31 @@ target_include_directories(${PROJECT_NAME}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/
     ${CMAKE_CURRENT_BINARY_DIR}
 )
+
+userver_target_generate_chaotic_dynamic_configs(
+    ${PROJECT_NAME}-dynamic-configs
+    dynamic_configs/*.yaml
+)
+target_link_libraries(${PROJECT_NAME} PUBLIC ${PROJECT_NAME}-dynamic-configs)
+
+# TODO: move to generator(?)
+userver_target_generate_chaotic(${PROJECT_NAME}-static-config-dns-client
+    INCLUDE_DIRS
+        ${CMAKE_CURRENT_SOURCE_DIR}/../chaotic/include
+    LAYOUT
+        "/=userver::static_config::DnsClient"
+    OUTPUT_DIR
+        ${CMAKE_CURRENT_BINARY_DIR}/static_configs
+    OUTPUT_PREFIX
+        userver/static_config
+    SCHEMAS
+        ${CMAKE_CURRENT_SOURCE_DIR}/static_configs/dns_client.yaml
+    RELATIVE_TO
+        ${CMAKE_CURRENT_SOURCE_DIR}/static_configs
+    INSTALL_INCLUDES_COMPONENT
+        core
+)
+target_link_libraries(${PROJECT_NAME} PUBLIC ${PROJECT_NAME}-static-config-dns-client)
 
 # Must go below all the target options and definitions.
 _check_compile_flags(${PROJECT_NAME})
@@ -294,7 +318,11 @@ if (USERVER_BUILD_TESTS)
     add_google_benchmark_tests(${PROJECT_NAME}-benchmark)
 endif()
 
-_userver_install_targets(COMPONENT core TARGETS ${PROJECT_NAME})
+_userver_install_targets(COMPONENT core TARGETS
+    ${PROJECT_NAME}
+    ${PROJECT_NAME}-dynamic-configs
+    ${PROJECT_NAME}-static-config-dns-client
+)
 _userver_directory_install(COMPONENT core FILES
     "${USERVER_ROOT_DIR}/cmake/UserverTestsuite.cmake"
     "${USERVER_ROOT_DIR}/cmake/install/userver-core-config.cmake"
@@ -302,12 +330,12 @@ _userver_directory_install(COMPONENT core FILES
 )
 _userver_directory_install(COMPONENT core FILES
     "${USERVER_ROOT_DIR}/cmake/modules/Findc-ares.cmake"
-    "${USERVER_ROOT_DIR}/cmake/modules/FindNghttp2.cmake"
-    "${USERVER_ROOT_DIR}/cmake/modules/FindLibEv.cmake"
+    "${USERVER_ROOT_DIR}/cmake/modules/Findlibnghttp2.cmake"
+    "${USERVER_ROOT_DIR}/cmake/modules/Findlibev.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/userver/modules
 )
 
-file(GLOB_RECURSE TESTSUITE_INSTALL_FILES
+file(GLOB TESTSUITE_INSTALL_FILES
     "${USERVER_ROOT_DIR}/testsuite/*.txt"
     "${USERVER_ROOT_DIR}/testsuite/*.py"
 )
@@ -325,4 +353,9 @@ _userver_directory_install(COMPONENT core
 _userver_directory_install(COMPONENT core DIRECTORY
     "${USERVER_ROOT_DIR}/testsuite/pytest_plugins/"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/userver/testsuite/pytest_plugins/
+)
+
+_userver_directory_install(COMPONENT core DIRECTORY
+    "${USERVER_ROOT_DIR}/testsuite/include_tests/"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/userver/testsuite/include_tests/
 )

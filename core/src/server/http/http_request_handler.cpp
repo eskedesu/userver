@@ -17,6 +17,8 @@
 #include <userver/server/request/task_inherited_request.hpp>
 #include <userver/utils/assert.hpp>
 
+#include <dynamic_config/variables/USERVER_RPS_CCONTROL_CUSTOM_STATUS.hpp>
+
 USERVER_NAMESPACE_BEGIN
 
 namespace server::http {
@@ -37,13 +39,13 @@ HttpRequestHandler::HttpRequestHandler(
     auto& logging_component = component_context.FindComponent<components::Logging>();
 
     if (logger_access_component && !logger_access_component->empty()) {
-        logger_access_ = logging_component.GetLogger(*logger_access_component);
+        logger_access_ = logging_component.GetTextLogger(*logger_access_component);
     } else {
         LOG_INFO() << "Access log is disabled";
     }
 
     if (logger_access_tskv_component && !logger_access_tskv_component->empty()) {
-        logger_access_tskv_ = logging_component.GetLogger(*logger_access_tskv_component);
+        logger_access_tskv_ = logging_component.GetTextLogger(*logger_access_tskv_component);
     } else {
         LOG_INFO() << "Access_tskv log is disabled";
     }
@@ -111,12 +113,12 @@ engine::TaskWithResult<void> HttpRequestHandler::StartRequestTask(std::shared_pt
 
     if (throttling_enabled && !rate_limit_.Obtain()) {
         const auto config = config_source_.GetSnapshot();
-        auto config_var = config[handlers::kCcCustomStatus];
-        const auto& delta = config_var.max_time_delta;
+        auto config_var = config[::dynamic_config::USERVER_RPS_CCONTROL_CUSTOM_STATUS];
+        const auto& delta = config_var.max_time_ms;
 
         auto status = HttpStatus::kTooManyRequests;
         if (cc_enabled_tp_ > std::chrono::steady_clock::now() - delta) {
-            status = config_var.initial_status_code;
+            status = static_cast<http::HttpStatus>(config_var.initial_status_code);
             metrics_->GetMetric(kCcStatusCodeIsCustom) = 1;
         } else {
             status = cc_status_code_.load();
@@ -138,12 +140,7 @@ engine::TaskWithResult<void> HttpRequestHandler::StartRequestTask(std::shared_pt
         return StartFailsafeTask(std::move(http_request));
     }
 
-    // config::operator[] && is forbidden, so this
-    const auto get_config_stream_api_enabled = [this] {
-        const auto config = config_source_.GetSnapshot();
-        return config[handlers::kStreamApiEnabled];
-    };
-    if (handler->GetConfig().response_body_stream && get_config_stream_api_enabled()) {
+    if (handler->GetConfig().response_body_stream) {
         http_response.SetStreamBody();
     }
 

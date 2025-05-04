@@ -146,8 +146,8 @@ private:
 
     void SetTransactionCommandControl(CommandControl cmd_ctl);
 
-    TimeoutDuration ExecuteTimeout(OptionalCommandControl) const;
-    TimeoutDuration CurrentExecuteTimeout() const;
+    TimeoutDuration NetworkTimeout(OptionalCommandControl) const;
+    TimeoutDuration CurrentNetworkTimeout() const;
 
     void SetConnectionStatementTimeout(TimeoutDuration timeout, engine::Deadline deadline);
 
@@ -214,6 +214,7 @@ private:
     bool is_discard_prepared_pending_ = false;
     ConnectionSettings settings_;
     std::optional<std::chrono::steady_clock::time_point> expires_at_;
+    bool deadline_propagation_is_active_{false};
 
     CommandControl default_cmd_ctl_{{}, {}};
     DefaultCommandControls default_cmd_ctls_;
@@ -224,6 +225,8 @@ private:
 
     std::unordered_set<std::string> statements_reported_;
     engine::Mutex statements_mutex_;
+    // Flag to check a correct order of calling Begin.
+    bool in_transaction_{false};
 };
 
 }  // namespace storages::postgres::detail

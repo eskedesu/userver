@@ -1,4 +1,9 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.14...4.0)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0")
+  if(NOT DEFINED $CACHE{CMAKE_POLICY_VERSION_MINIMUM})
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.14 CACHE INTERNAL "")
+  endif()
+endif()
 cmake_policy(SET CMP0025 NEW)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.15")
   cmake_policy(SET CMP0093 NEW)
@@ -7,6 +12,7 @@ set(CMAKE_POLICY_DEFAULT_CMP0028 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0063 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0074 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 project(userver)
@@ -77,17 +83,13 @@ if(USERVER_FEATURE_CORE AND USERVER_BUILD_ALL_COMPONENTS)
 endif()
 
 set(USERVER_MONGODB_DEFAULT OFF)
-set(USERVER_CLICKHOUSE_DEFAULT OFF)
-if(USERVER_FEATURE_CORE AND USERVER_BUILD_ALL_COMPONENTS AND USERVER_BUILD_PLATFORM_X86)
-  if(NOT CMAKE_SYSTEM_NAME MATCHES "BSD")
-    set(USERVER_MONGODB_DEFAULT ON)
-  endif()
-  set(USERVER_CLICKHOUSE_DEFAULT ON)
+if(USERVER_FEATURE_CORE AND USERVER_BUILD_ALL_COMPONENTS AND NOT CMAKE_SYSTEM_NAME MATCHES "BSD")
+  set(USERVER_MONGODB_DEFAULT ON)
 endif()
 
 set(USERVER_YDB_DEFAULT OFF)
 if(USERVER_FEATURE_CORE AND USERVER_BUILD_ALL_COMPONENTS AND
-    DEFINED CMAKE_CXX_STANDARD AND CMAKE_CXX_STANDARD GREATER_EQUAL 20 AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    DEFINED CMAKE_CXX_STANDARD AND CMAKE_CXX_STANDARD GREATER_EQUAL 20)
   set(USERVER_YDB_DEFAULT ON)
 endif()
 
@@ -122,6 +124,7 @@ endif()
 option(USERVER_FEATURE_JEMALLOC "Enable linkage with jemalloc memory allocator" ${JEMALLOC_DEFAULT})
 
 option(USERVER_DISABLE_PHDR_CACHE "Disable caching of dl_phdr_info items, which interferes with dlopen" OFF)
+option(USERVER_FEATURE_STACK_USAGE_MONITOR "Enable coroutine stack usage monitor if available" ON)
 
 set(USERVER_DISABLE_RSEQ_DEFAULT ON)
 if (USERVER_BUILD_PLATFORM_X86 AND CMAKE_SYSTEM_NAME MATCHES "Linux")
@@ -136,7 +139,7 @@ option(USERVER_FEATURE_MONGODB "Provide asynchronous driver for MongoDB" "${USER
 option(USERVER_FEATURE_POSTGRESQL "Provide asynchronous driver for PostgreSQL" "${USERVER_LIB_ENABLED_DEFAULT}")
 option(USERVER_FEATURE_REDIS "Provide asynchronous driver for Redis" "${USERVER_LIB_ENABLED_DEFAULT}")
 option(USERVER_FEATURE_GRPC "Provide asynchronous driver for gRPC" "${USERVER_LIB_ENABLED_DEFAULT}")
-option(USERVER_FEATURE_CLICKHOUSE "Provide asynchronous driver for ClickHouse" "${USERVER_CLICKHOUSE_DEFAULT}")
+option(USERVER_FEATURE_CLICKHOUSE "Provide asynchronous driver for ClickHouse" "${USERVER_LIB_ENABLED_DEFAULT}")
 option(USERVER_FEATURE_KAFKA "Provide asynchronous driver for Apache Kafka" "${USERVER_LIB_ENABLED_DEFAULT}")
 option(USERVER_FEATURE_RABBITMQ "Provide asynchronous driver for RabbitMQ" "${USERVER_LIB_ENABLED_DEFAULT}")
 option(USERVER_FEATURE_MYSQL "Provide asynchronous driver for MariaDB/MySQL" "${USERVER_LIB_ENABLED_DEFAULT}")
@@ -148,15 +151,29 @@ option(USERVER_FEATURE_ETCD "Provide asynchronous driver for etcd" "${USERVER_LI
 set(CMAKE_DEBUG_POSTFIX d)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
+include(CheckSupportedPlatform)
 
-option(USERVER_USE_STATIC_LIBS "Tries to find all dependencies as static libraries" OFF)
+if(USERVER_CONAN AND NOT DEFINED CMAKE_FIND_PACKAGE_PREFER_CONFIG)
+  set(CMAKE_FIND_PACKAGE_PREFER_CONFIG ON)
+endif()
+
+set(USERVER_USE_STATIC_LIBS_DEFAULT OFF)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 14.0)
+  set(USERVER_USE_STATIC_LIBS_DEFAULT ON)
+endif()
+option(USERVER_USE_STATIC_LIBS "Tries to find all dependencies as static libraries" "${USERVER_USE_STATIC_LIBS_DEFAULT}")
 
 if(USERVER_USE_STATIC_LIBS)
+  if(USERVER_USE_STATIC_LIBS_DEFAULT)
+    set(_use_static_log_level STATUS)
+  else()
+    set(_use_static_log_level WARNING)
+  endif()
   message(
-    WARNING
+    ${_use_static_log_level}
     "USERVER_USE_STATIC_LIBS turned ON, prioritized to find static libraries. Not all dependencies may be taken into account and linkage may be broken")
-  include(UserverPreferStaticLibs)
 endif()
+include(UserverPreferStaticLibs)
 
 include(UserverSetupEnvironment)
 userver_setup_environment()
@@ -174,6 +191,7 @@ include(AddGoogleTests)
 include(FindPackageRequired)
 include(IncludeWhatYouUse)
 include(UserverTestsuite)
+include(UserverCodegenTarget)
 include(CheckCompileFlags)
 include(CMakePackageConfigHelpers)
 
@@ -194,11 +212,6 @@ endif()
 
 add_subdirectory(universal)
 
-if (USERVER_FEATURE_CORE)
-  add_subdirectory(core)
-  list(APPEND USERVER_AVAILABLE_COMPONENTS core)
-endif()
-
 if (USERVER_FEATURE_CHAOTIC)
   add_subdirectory(chaotic)
   list(APPEND USERVER_AVAILABLE_COMPONENTS chaotic)
@@ -208,6 +221,14 @@ if (USERVER_FEATURE_CHAOTIC)
     add_subdirectory(chaotic-openapi)
     list(APPEND USERVER_AVAILABLE_COMPONENTS chaotic-openapi)
   endif()
+endif()
+
+if (USERVER_FEATURE_CORE)
+  if (NOT USERVER_FEATURE_CHAOTIC)
+    message(FATAL_ERROR "'USERVER_FEATURE_CORE' requires 'USERVER_FEATURE_CHAOTIC=ON'")
+  endif()
+  add_subdirectory(core)
+  list(APPEND USERVER_AVAILABLE_COMPONENTS core)
 endif()
 
 if (USERVER_FEATURE_MONGODB)
@@ -301,6 +322,43 @@ endif()
 
 if(USERVER_INSTALL)
   include(cmake/UserverPack.cmake)
+endif()
+
+if(USERVER_FEATURE_CORE)
+  _userver_directory_install(
+      COMPONENT core
+      PROGRAMS "${USERVER_ROOT_DIR}/scripts/userver-create-service"
+      DESTINATION ${CMAKE_INSTALL_BINDIR}/
+  )
+  _userver_directory_install(
+      COMPONENT core
+      DIRECTORY "${USERVER_ROOT_DIR}/service_template"
+      DESTINATION ${CMAKE_INSTALL_DATADIR}/userver/
+  )
+endif()
+
+if (USERVER_BUILD_TESTS)
+  function (_add_create_service_test FEATURE CMAKE_OPTS)
+    add_test(
+      NAME create-service${FEATURE}
+      COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/create-service-test-helper"
+          "${CMAKE_CURRENT_SOURCE_DIR}"
+          "${CMAKE_CURRENT_BINARY_DIR}"
+          "${CMAKE_OPTS}"
+          ${FEATURE}
+    )
+  endfunction()
+
+  _add_create_service_test("" "")
+  if(USERVER_FEATURE_MONGODB)
+    _add_create_service_test("--mongo" "")
+  endif()
+  if(USERVER_FEATURE_POSTGRESQL)
+    _add_create_service_test("--postgres" "")
+  endif()
+  if(USERVER_FEATURE_GRPC)
+    _add_create_service_test("--grpc" "-DUSERVER_GOOGLE_COMMON_PROTOS=${USERVER_GOOGLE_COMMON_PROTOS} -DUSERVER_DOWNLOAD_PACKAGES=${USERVER_DOWNLOAD_PACKAGES}")
+  endif()
 endif()
 
 _userver_print_features_list()

@@ -422,9 +422,9 @@ struct ResolverWrapper {
               }(),
               engine::current_task::GetTaskProcessor().GetTaskProcessorPools()},
           resolver{fs_task_processor, [&] {
-                       clients::dns::ResolverConfig config;
-                       config.file_path = hosts_file.GetPath();
-                       config.file_update_interval = utest::kMaxTestWaitTime;
+                       ::userver::static_config::DnsClient config;
+                       config.hosts_file_path = hosts_file.GetPath();
+                       config.hosts_file_update_interval = utest::kMaxTestWaitTime;
                        config.network_timeout = utest::kMaxTestWaitTime;
                        config.network_attempts = 1;
                        config.cache_max_reply_ttl = std::chrono::seconds{1};
@@ -1511,6 +1511,33 @@ UTEST(HttpClient, CheckSchema) {
     UEXPECT_THROW(http_client_ptr->CreateRequest().url("file://localhost"), clients::http::BadArgumentException);
     UEXPECT_THROW(http_client_ptr->CreateRequest().url("smtp://localhost"), clients::http::BadArgumentException);
     UEXPECT_THROW(http_client_ptr->CreateRequest().url("telnet://localhost"), clients::http::BadArgumentException);
+}
+
+UTEST(HttpClient, ShortUrl) {
+    const std::shared_ptr<clients::http::Client> client = utest::CreateHttpClient();
+    clients::http::Request request = client->CreateRequest();
+    request.url("http://ex");
+
+    EXPECT_EQ(request.GetUrl(), "http://ex");
+}
+
+UTEST(HttpClient, LongUrl) {
+    const std::shared_ptr<clients::http::Client> client = utest::CreateHttpClient();
+    clients::http::Request request = client->CreateRequest();
+    request.url("http://large_enough_to_kick_the_sso_out.com");
+
+    EXPECT_EQ(request.GetUrl(), "http://large_enough_to_kick_the_sso_out.com");
+}
+
+UTEST(HttpRequest, GracefulExceptionOnInvalidUrl) {
+    const std::shared_ptr<clients::http::Client> client = utest::CreateHttpClient();
+    clients::http::Request request = client->CreateRequest();
+
+    UASSERT_THROW_MSG(
+        request.url("https://port_number_is_too_large.com:99999/yandsearch"),
+        clients::http::BadArgumentException,
+        "https://port_number_is_too_large.com:99999/yandsearch"
+    );
 }
 
 UTEST(HttpClient, DigestAuth) {

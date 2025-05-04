@@ -14,11 +14,13 @@ import dataclasses
 import json
 import logging
 import typing
+from typing import Optional
+from typing import Union
 import warnings
 
 import aiohttp
 
-from testsuite import annotations
+from testsuite import logcapture
 from testsuite import utils
 from testsuite.daemons import service_client
 from testsuite.utils import approx
@@ -30,6 +32,9 @@ from pytest_userver.plugins import caches
 # @cond
 logger = logging.getLogger(__name__)
 # @endcond
+
+JsonAny = Union[int, float, str, list, dict]
+JsonAnyOptional = Optional[JsonAny]
 
 _UNKNOWN_STATE = '__UNKNOWN__'
 
@@ -108,7 +113,7 @@ class ClientWrapper:
         self,
         path: str,
         # pylint: disable=redefined-outer-name
-        json: annotations.JsonAnyOptional = None,
+        json: JsonAnyOptional = None,
         data: typing.Any = None,
         params: typing.Optional[typing.Dict[str, str]] = None,
         bearer: typing.Optional[str] = None,
@@ -135,7 +140,7 @@ class ClientWrapper:
         self,
         path,
         # pylint: disable=redefined-outer-name
-        json: annotations.JsonAnyOptional = None,
+        json: JsonAnyOptional = None,
         data: typing.Any = None,
         params: typing.Optional[typing.Dict[str, str]] = None,
         bearer: typing.Optional[str] = None,
@@ -162,7 +167,7 @@ class ClientWrapper:
         self,
         path,
         # pylint: disable=redefined-outer-name
-        json: annotations.JsonAnyOptional = None,
+        json: JsonAnyOptional = None,
         data: typing.Any = None,
         params: typing.Optional[typing.Dict[str, str]] = None,
         bearer: typing.Optional[str] = None,
@@ -257,6 +262,13 @@ class ClientWrapper:
         response = await self._client.request(http_method, path, **kwargs)
         return await self._wrap_client_response(response)
 
+    @property
+    def raw_aiohttp_client(self):
+        """
+        @deprecated Use pytest_userver.client.Client directly instead.
+        """
+        return self._client
+
     def _wrap_client_response(
         self,
         response: aiohttp.ClientResponse,
@@ -306,7 +318,7 @@ class AiohttpClientMonitor(service_client.AiohttpClient):
     async def get_metric(self, metric_name):
         metrics = await self.get_metrics(metric_name)
         assert metric_name in metrics, (
-            f'No metric with name {metric_name!r}. ' f'Use "single_metric" function instead of "get_metric"'
+            f'No metric with name {metric_name!r}. Use "single_metric" function instead of "get_metric"'
         )
         return metrics[metric_name]
 
@@ -365,9 +377,7 @@ class AiohttpClientMonitor(service_client.AiohttpClient):
         response = await self.metrics(path=path, labels=labels)
         metrics_list = response.get(path, [])
 
-        assert len(metrics_list) <= 1, (
-            f'More than one metric found for path {path} and labels {labels}: ' f'{response}',
-        )
+        assert len(metrics_list) <= 1, (f'More than one metric found for path {path} and labels {labels}: {response}',)
 
         if not metrics_list:
             return None
@@ -751,7 +761,7 @@ class AiohttpClient(service_client.AiohttpClient):
         *,
         config: TestsuiteClientConfig,
         mocked_time,
-        log_capture_fixture,
+        log_capture_fixture: logcapture.CaptureServer,
         testpoint,
         testpoint_control,
         cache_invalidation_state,
@@ -896,8 +906,8 @@ class AiohttpClient(service_client.AiohttpClient):
         log_level: str = 'DEBUG',
         testsuite_skip_prepare: bool = False,
     ):
-        async with self._log_capture_fixture.start_capture(
-            log_level=log_level,
+        async with self._log_capture_fixture.capture(
+            log_level=logcapture.LogLevel.from_string(log_level),
         ) as capture:
             logger.debug('Starting logcapture')
             await self._testsuite_action(
@@ -911,10 +921,9 @@ class AiohttpClient(service_client.AiohttpClient):
                 await self._log_capture_fixture.wait_for_client()
                 yield capture
             finally:
-                logger.debug('Finishing logcapture')
                 await self._testsuite_action(
                     'log_capture',
-                    log_level=self._log_capture_fixture.default_log_level,
+                    log_level=self._log_capture_fixture.default_log_level.name,
                     socket_logging_duplication=False,
                     testsuite_skip_prepare=testsuite_skip_prepare,
                 )
@@ -960,14 +969,14 @@ class AiohttpClient(service_client.AiohttpClient):
         invalidate_caches: bool = True,
         clean_update: bool = True,
         cache_names: typing.Optional[typing.List[str]] = None,
-        http_allowed_urls_extra=None,
+        http_allowed_urls_extra: typing.Optional[typing.List[str]] = None,
     ) -> typing.Dict[str, typing.Any]:
         body: typing.Dict[str, typing.Any] = self._state_manager.get_pending_update()
 
         if 'invalidate_caches' in body and invalidate_caches:
             if not clean_update or cache_names:
                 logger.warning(
-                    'Manual cache invalidation leads to indirect initial ' 'full cache invalidation',
+                    'Manual cache invalidation leads to indirect initial full cache invalidation',
                 )
                 await self._prepare()
                 body = {}
@@ -1014,7 +1023,7 @@ class AiohttpClient(service_client.AiohttpClient):
             ) as response:
                 if response.status == 404:
                     raise ConfigurationError(
-                        'It seems that testsuite support is not enabled ' 'for your service',
+                        'It seems that testsuite support is not enabled for your service',
                     )
                 response.raise_for_status()
                 return await response.json(content_type=None)
@@ -1190,7 +1199,7 @@ class Client(ClientWrapper):
         Reports metrics related issues that could be encountered on
         different monitoring systems.
 
-        @sa @ref utils::statistics::GetPortabilityInfo
+        @sa @ref utils::statistics::GetPortabilityWarnings
         """
         return await self._client.metrics_portability(prefix=prefix)
 
@@ -1210,6 +1219,7 @@ class Client(ClientWrapper):
         Captures logs from the service.
 
         @param log_level Do not capture logs below this level.
+        @param testsuite_skip_prepare An advanced parameter to skip auto-`update_server_state`.
 
         @see @ref testsuite_logs_capture
         """
@@ -1252,10 +1262,17 @@ class Client(ClientWrapper):
     @_wrap_client_error
     async def tests_control(
         self,
-        *args,
-        **kwargs,
+        invalidate_caches: bool = True,
+        clean_update: bool = True,
+        cache_names: typing.Optional[typing.List[str]] = None,
+        http_allowed_urls_extra: typing.Optional[typing.List[str]] = None,
     ) -> typing.Dict[str, typing.Any]:
-        return await self._client.tests_control(*args, **kwargs)
+        return await self._client.tests_control(
+            invalidate_caches=invalidate_caches,
+            clean_update=clean_update,
+            cache_names=cache_names,
+            http_allowed_urls_extra=http_allowed_urls_extra,
+        )
 
     @_wrap_client_error
     async def update_server_state(self) -> None:
@@ -1270,7 +1287,7 @@ class Client(ClientWrapper):
         await self._client.update_server_state()
 
     @_wrap_client_error
-    async def enable_testpoints(self, *args, **kwargs) -> None:
+    async def enable_testpoints(self, no_auto_cache_cleanup: bool = False) -> None:
         """
         Send list of handled testpoint pats to service. For these paths service
         will no more skip http calls from TESTPOINT(...) macro.
@@ -1280,7 +1297,7 @@ class Client(ClientWrapper):
         makes additional http call to `tests/control` to update caches, to get
         rid of data from previous test.
         """
-        await self._client.enable_testpoints(*args, **kwargs)
+        await self._client.enable_testpoints(no_auto_cache_cleanup=no_auto_cache_cleanup)
 
     @_wrap_client_error
     async def get_dynamic_config_defaults(
