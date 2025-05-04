@@ -1,0 +1,52 @@
+components_manager:
+    task_processors:                  # Task processor is an executor for coroutine tasks
+        main-task-processor:          # Make a task processor for CPU-bound coroutine tasks.
+            worker_threads: $worker-threads         # Process tasks in 4 threads.
+        fs-task-processor:            # Make a separate task processor for filesystem bound tasks.
+            worker_threads: $worker-fs-threads
+
+    default_task_processor: main-task-processor
+
+    components:                       # Configuring components that were registered via component_list
+        server:
+            listener:                 # configuring the main listening socket...
+                port: $server-port            # ...to listen on this port and...
+                task_processor: main-task-processor    # ...process incoming requests on this task processor.
+        logging:
+            fs-task-processor: fs-task-processor
+            loggers:
+                default:
+                    file_path: '@stderr'
+                    level: $logger-level
+                    overflow_behavior: discard  # Drop logs if the system is too busy to write them down.
+
+        testsuite-support: {}
+
+        http-client:
+            load-enabled: $is_testing
+            fs-task-processor: fs-task-processor
+
+        tests-control:
+            path: /tests/{action}
+            method: POST
+            task_processor: main-task-processor
+            testpoint-timeout: 10s
+            testpoint-url: mockserver/testpoint
+            throttling_enabled: false
+
+        etcd-сlient:
+            endpoints:
+              - http://localhost:2379
+            attempts: 2
+            request_timeout_ms: 500
+            watch_timeout_ms: 1000000
+
+        handler-v1-get:
+            path: /v1/get
+            method: POST
+            task_processor: main-task-processor
+
+        handler-v1-put:
+            path: /v1/put
+            method: PUT
+            task_processor: main-task-processor
