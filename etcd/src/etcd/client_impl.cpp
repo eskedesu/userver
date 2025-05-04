@@ -12,6 +12,7 @@
 #include <userver/engine/sleep.hpp>
 #include <userver/etcd/exceptions.hpp>
 #include <userver/formats/json/inline.hpp>
+#include <userver/formats/json/serialize.hpp>
 #include <userver/formats/parse/common_containers.hpp>
 #include <userver/http/common_headers.hpp>
 #include <userver/http/status_code.hpp>
@@ -46,10 +47,15 @@ std::string BuildPutData(const std::string& key, const std::string& value) {
 
 std::string BuildRangeUrl(const std::string& service_url) { return fmt::format("{}/v3/kv/range", service_url); }
 
-std::string BuildRangeData(const std::string& key) {
+std::string BuildRangeData(const std::string& key, const std::optional<std::string>& maybe_range_end = std::nullopt) {
     const auto etcd_key = kKeyPrefix + key;
+    if (!maybe_range_end.has_value()) {
+        return formats::json::ToString(formats::json::MakeObject(
+            "key", crypto::base64::Base64Encode(etcd_key)
+        ));    
+    }
     return formats::json::ToString(formats::json::MakeObject(
-        "key", crypto::base64::Base64Encode(etcd_key), "range_end", crypto::base64::Base64Encode(kLastPossibleKeyPrefix)
+        "key", crypto::base64::Base64Encode(etcd_key), "range_end", crypto::base64::Base64Encode(maybe_range_end)
     ));
 }
 
@@ -120,7 +126,7 @@ std::optional<std::string> ClientImpl::Get(const std::string& key) {
 }
 
 std::vector<std::string> ClientImpl::Range(const std::string& key_prefix) {
-    auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key_prefix));
+    auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key_prefix, kLastPossibleKeyPrefix));
 
     const auto json_body = formats::json::FromString(response->body());
     if (!json_body.HasMember("kvs")) {
