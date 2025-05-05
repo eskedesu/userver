@@ -1,8 +1,13 @@
+import asyncio
 import base64
+import json
+
+import aiohttp
 
 import pytest
 
 pytest_plugins = ['pytest_userver.plugins.core']
+
 
 @pytest.fixture(scope='session')
 def userver_config_http_client(
@@ -12,7 +17,7 @@ def userver_config_http_client(
 ):
     def patch_config(config, config_vars):
         components: dict = config['components_manager']['components']
-        
+
         http_client = components['http-client'] or {}
         http_client['testsuite-enabled'] = False
 
@@ -38,19 +43,21 @@ def etcd_mock(mockserver):
         value = base64.b64decode(request.json['value'])
         etcd_storage[key] = value
         return mockserver.make_response('OK!')
-    
+
     @mockserver.json_handler('/v3/kv/range')
     async def mock(request):
         request_key = base64.b64decode(request.json['key'])
         if 'range_end' in request.json:
             request_range_end = base64.b64decode(request.json['range_end'])
-        else:
+        elif request_key in etcd_storage:
             return mockserver.make_response(json={
                 'kvs': [{
                     'key': base64.b64encode(request_key).decode('utf-8'),
                     'value': base64.b64encode(etcd_storage[request_key]).decode('utf-8'),
                 }]
             })
+        else:
+            return mockserver.make_response(json={})
 
         values = []
         for key, value in etcd_storage.items():
@@ -63,4 +70,31 @@ def etcd_mock(mockserver):
         return mockserver.make_response(json={
             'kvs': values
         })
-    
+
+    @mockserver.handler('/v3/watch')
+    async def mock(request):
+        key = base64.b64decode(request.json['create_request']['key'])
+        response = aiohttp.web.StreamResponse(
+            status=200,
+            headers={
+                'Content-Type': 'application/json',
+            }
+        )
+        await response.prepare(request._request)
+        data = json.dumps({
+            'result': {
+                'events': [
+                    {
+                        'kv': {
+                            'key': base64.b64encode(key).decode(),
+                            'value': base64.b64encode(b'new_value').decode(),
+                            'version': '2',
+                        }
+                    }
+                ]
+            }
+        })
+        await response.write(data.encode())
+        await asyncio.sleep(0.01)
+
+        return response

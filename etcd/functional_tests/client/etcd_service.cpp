@@ -74,11 +74,11 @@ public:
     HandleRequestThrow(const userver::server::http::HttpRequest& request, userver::server::request::RequestContext&)
         const override {
         const auto key = request.GetArg("key");
-        const auto original_value = etcd_client_ptr_->Get(key);
+        const auto maybe_original_value = etcd_client_ptr_->Get(key);
         auto watch_listener = etcd_client_ptr_->StartWatch(key);
         const auto watch_event = watch_listener.GetEvent();
         const auto new_value = watch_event.value;
-        return fmt::format("original value: {}, new value: {}", original_value.value_or("No value"), new_value);
+        return fmt::format("original value: {}, new value: {}", maybe_original_value.value_or("No value"), new_value);
     }
 
 private:
