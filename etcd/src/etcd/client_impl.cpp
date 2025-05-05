@@ -50,12 +50,13 @@ std::string BuildRangeUrl(const std::string& service_url) { return fmt::format("
 std::string BuildRangeData(const std::string& key, const std::optional<std::string>& maybe_range_end = std::nullopt) {
     const auto etcd_key = kKeyPrefix + key;
     if (!maybe_range_end.has_value()) {
-        return formats::json::ToString(formats::json::MakeObject(
-            "key", crypto::base64::Base64Encode(etcd_key)
-        ));    
+        return formats::json::ToString(formats::json::MakeObject("key", crypto::base64::Base64Encode(etcd_key)));
     }
     return formats::json::ToString(formats::json::MakeObject(
-        "key", crypto::base64::Base64Encode(etcd_key), "range_end", crypto::base64::Base64Encode(maybe_range_end)
+        "key",
+        crypto::base64::Base64Encode(etcd_key),
+        "range_end",
+        crypto::base64::Base64Encode(maybe_range_end.value())
     ));
 }
 
@@ -207,12 +208,16 @@ clients::http::StreamedResponse ClientImpl::PerformStreamedEtcdRequest(
 }
 
 void ClientImpl::WatchKeyChanges(const std::string& key, concurrent::SpscQueue<KeyValueState>::Producer producer) {
+    LOG_DEBUG() << "Start whatching key changes";
     auto stream_response = PerformStreamedEtcdRequest(BuildWatchUrl, BuildWatchData(key));
-
     std::string body_part;
     while (stream_response.ReadChunk(body_part, engine::Deadline())) {
         const auto watch_response = formats::json::FromString(body_part);
         LOG_DEBUG() << "Got folowing chunk from etcd watch handler: " << watch_response;
+        if (!watch_response.HasMember("result")) {
+            LOG_DEBUG() << "No result in watch part response, skipping";
+            continue;
+        }
         if (!watch_response["result"].HasMember("events")) {
             LOG_DEBUG() << "No events in watch part response, skipping";
             continue;
