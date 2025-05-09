@@ -1,4 +1,3 @@
-
 #include <fmt/format.h>
 
 #include <userver/clients/dns/component.hpp>
