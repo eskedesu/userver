@@ -133,11 +133,11 @@ UTEST(Etcd, TestRange) {
     for (uint32_t i = 1; i <= range_size; ++i) {
         EXPECT_EQ(range_result[i - 1].value, fmt::format("some_value_{}", i));
     }
-    
+
     for (uint32_t i = 1; i <= range_size; ++i) {
         etcd_client_ptr->Delete(fmt::format("some_key_{}", i));
     }
-    
+
     EXPECT_TRUE(etcd_client_ptr->Range("some_key").empty());
 }
 
