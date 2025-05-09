@@ -12,6 +12,7 @@
 #include <userver/clients/http/component.hpp>
 #include <userver/concurrent/queue.hpp>
 #include <userver/engine/task/task_with_result.hpp>
+#include <userver/etcd/key_value_state.hpp>
 #include <userver/etcd/settings.hpp>
 #include <userver/etcd/watch_listener.hpp>
 #include <userver/yaml_config/fwd.hpp>
@@ -29,27 +30,27 @@ public:
     /// The pair should be retrieve only with current client,
     /// because Put can transform the key.
     ///
-    virtual void Put(const std::string& key, const std::string& value) = 0;
+    virtual void Put(std::string_view key, std::string_view value) = 0;
 
     /// @brief Gets a value from etcd cluster by a key.
     /// If there is no value with such key, returns std::nullopt
     ///
-    [[nodiscard]] virtual std::optional<std::string> Get(const std::string& key) = 0;
+    [[nodiscard]] virtual std::optional<std::string> Get(std::string_view key) = 0;
 
-    /// @brief Retrieves values from the etcd cluster,
+    /// @brief Retrieves key values pairs from the etcd cluster,
     /// the keys of which match the passed prefix.
-    /// If there is no value with such key, returns std::nullopt
+    /// If there is no value with such key, returns empty vector
     ///
-    [[nodiscard]] virtual std::vector<std::string> Range(const std::string& key_prefix) = 0;
+    [[nodiscard]] virtual std::vector<KeyValueState> Range(std::string_view key_prefix) = 0;
 
     /// @brief Delete a key value pair with the passed key
     /// from the etcd cluster
     ///
-    virtual void Delete(const std::string& key) = 0;
+    virtual void Delete(std::string_view key) = 0;
 
     /// @brief Start task that produces events when key value pair changes
     ///
-    virtual WatchListener StartWatch(const std::string& key) = 0;
+    virtual WatchListener StartWatch(std::string_view key) = 0;
 };
 
 using ClientPtr = std::shared_ptr<Client>;

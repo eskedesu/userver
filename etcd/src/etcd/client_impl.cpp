@@ -21,6 +21,8 @@
 #include <userver/utils/rand.hpp>
 #include <userver/yaml_config/yaml_config.hpp>
 
+#include <etcd/etcd_responses.hpp>
+
 USERVER_NAMESPACE_BEGIN
 
 namespace etcd {
@@ -33,22 +35,22 @@ const std::uint32_t kMaxRetryStatusCode = 599;
 const std::uint32_t kMinGoodStatusCode = 200;
 const std::uint32_t kMaxGoodStatusCode = 299;
 
-const std::string kKeyPrefix = "/etcd/";
-const std::string kLastPossibleKeyPrefix = "/etcd0";
+std::string kKeyPrefix = "/etcd/";
+std::string kLastPossibleKeyPrefix = "/etcd0";
 
-std::string BuildPutUrl(const std::string& service_url) { return fmt::format("{}/v3/kv/put", service_url); }
+std::string BuildPutUrl(std::string_view service_url) { return fmt::format("{}/v3/kv/put", service_url); }
 
-std::string BuildPutData(const std::string& key, const std::string& value) {
-    const auto etcd_key = kKeyPrefix + key;
+std::string BuildPutData(std::string_view key, std::string_view value) {
+    const auto etcd_key = fmt::format("{}{}", kKeyPrefix, key);
     return formats::json::ToString(formats::json::MakeObject(
         "key", crypto::base64::Base64Encode(etcd_key), "value", crypto::base64::Base64Encode(value)
     ));
 }
 
-std::string BuildRangeUrl(const std::string& service_url) { return fmt::format("{}/v3/kv/range", service_url); }
+std::string BuildRangeUrl(std::string_view service_url) { return fmt::format("{}/v3/kv/range", service_url); }
 
-std::string BuildRangeData(const std::string& key, const std::optional<std::string>& maybe_range_end = std::nullopt) {
-    const auto etcd_key = kKeyPrefix + key;
+std::string BuildRangeData(std::string_view key, const std::optional<std::string_view> maybe_range_end = std::nullopt) {
+    const auto etcd_key = fmt::format("{}{}", kKeyPrefix, key);
     if (!maybe_range_end.has_value()) {
         return formats::json::ToString(formats::json::MakeObject("key", crypto::base64::Base64Encode(etcd_key)));
     }
@@ -60,17 +62,17 @@ std::string BuildRangeData(const std::string& key, const std::optional<std::stri
     ));
 }
 
-std::string BuildDeleteUrl(const std::string& service_url) { return fmt::format("{}/v3/kv/deleterange", service_url); }
+std::string BuildDeleteUrl(std::string_view service_url) { return fmt::format("{}/v3/kv/deleterange", service_url); }
 
-std::string BuildDeleteData(const std::string& key) {
-    const auto etcd_key = kKeyPrefix + key;
+std::string BuildDeleteData(std::string_view key) {
+    const auto etcd_key = fmt::format("{}{}", kKeyPrefix, key);
     return formats::json::ToString(formats::json::MakeObject("key", crypto::base64::Base64Encode(etcd_key)));
 }
 
-std::string BuildWatchUrl(const std::string& service_url) { return fmt::format("{}/v3/watch", service_url); }
+std::string BuildWatchUrl(std::string_view service_url) { return fmt::format("{}/v3/watch", service_url); }
 
-std::string BuildWatchData(const std::string& key) {
-    const auto etcd_key = kKeyPrefix + key;
+std::string BuildWatchData(std::string_view key) {
+    const auto etcd_key = fmt::format("{}{}", kKeyPrefix, key);
     return formats::json::ToString(formats::json::MakeObject(
         "create_request", formats::json::MakeObject("key", crypto::base64::Base64Encode(etcd_key))
     ));
@@ -80,9 +82,9 @@ bool ShouldRetry(const http::StatusCode status_code) {
     return kMinRetryStatusCode <= status_code && status_code <= kMaxRetryStatusCode;
 }
 
-void CheckResponseStatusCode(const http::StatusCode status_code) {
+void CheckResponseStatusCode(const http::StatusCode status_code, std::string_view body) {
     if (status_code < kMinGoodStatusCode || kMaxGoodStatusCode < status_code) {
-        throw EtcdError(fmt::format("Got bad status code from etcd: {}", status_code));
+        throw EtcdError(fmt::format("Got bad status code from etcd: {}, body: {}", status_code, body));
     }
 }
 
@@ -93,7 +95,7 @@ namespace impl {
 ClientImpl::ClientImpl(clients::http::Client& http_client, ClientSettings settings)
     : http_client_(http_client), settings_(settings) {}
 
-void ClientImpl::Put(const std::string& key, const std::string& value) {
+void ClientImpl::Put(std::string_view key, std::string_view value) {
     try {
         PerformEtcdRequest(BuildPutUrl, BuildPutData(key, value));
     } catch (const clients::http::HttpClientException& exception) {
@@ -101,7 +103,7 @@ void ClientImpl::Put(const std::string& key, const std::string& value) {
     }
 }
 
-void ClientImpl::Delete(const std::string& key) {
+void ClientImpl::Delete(std::string_view key) {
     try {
         PerformEtcdRequest(BuildDeleteUrl, BuildDeleteData(key));
     } catch (const clients::http::HttpClientException& exception) {
@@ -109,68 +111,53 @@ void ClientImpl::Delete(const std::string& key) {
     }
 }
 
-std::optional<std::string> ClientImpl::Get(const std::string& key) {
+std::optional<std::string> ClientImpl::Get(std::string_view key) {
     auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key));
 
-    const auto json_body = formats::json::FromString(response->body());
-    if (!json_body.HasMember("kvs")) {
-        return std::nullopt;
-    }
-    const auto& key_value_list = json_body["kvs"];
-    const auto etcd_key = kKeyPrefix + key;
-    for (const auto& key_value : key_value_list) {
-        if (crypto::base64::Base64Decode(key_value["key"].As<std::string>()) == etcd_key) {
-            return crypto::base64::Base64Decode(key_value["value"].As<std::string>());
+    const auto range_response = formats::json::FromString(response->body()).As<EtcdRangeResponse>();
+    const auto etcd_key = fmt::format("{}{}", kKeyPrefix, key);
+    for (const auto& key_value_state : range_response.key_value_states) {
+        if (key_value_state.key == etcd_key) {
+            return key_value_state.value;
         }
     }
     return std::nullopt;
 }
 
-std::vector<std::string> ClientImpl::Range(const std::string& key_prefix) {
+std::vector<KeyValueState> ClientImpl::Range(std::string_view key_prefix) {
     auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key_prefix, kLastPossibleKeyPrefix));
 
-    const auto json_body = formats::json::FromString(response->body());
-    if (!json_body.HasMember("kvs")) {
-        return {};
-    }
-    const auto& key_value_list = json_body["kvs"];
-    std::vector<std::string> values;
-    values.reserve(key_value_list.GetSize());
-    for (const auto& key_value : key_value_list) {
-        values.push_back(crypto::base64::Base64Decode(key_value["value"].As<std::string>()));
-    }
-    return values;
+    const auto range_response = formats::json::FromString(response->body()).As<EtcdRangeResponse>();
+    return range_response.key_value_states;
 }
 
-WatchListener ClientImpl::StartWatch(const std::string& key) {
+WatchListener ClientImpl::StartWatch(std::string_view key) {
     auto queue = concurrent::SpscQueue<KeyValueState>::Create();
 
     auto watch_queues_ptr = watch_queues_.Lock();
     watch_queues_ptr->push_back(queue);
 
-    utils::Async("watch task", [&key, producer = queue->GetProducer(), this]() mutable {
-        this->WatchKeyChanges(key, std::move(producer));
+    utils::Async("watch task", [key, producer = queue->GetProducer(), this]() mutable {
+        this->WatchKeyChanges(std::string(key), std::move(producer));
     }).Detach();
 
     return WatchListener{queue->GetConsumer()};
 }
 
-std::shared_ptr<clients::http::Response> ClientImpl::PerformEtcdRequest(
-    const std::function<std::string(const std::string&)>& url_builder,
-    const std::string& data
-) {
+std::shared_ptr<clients::http::Response>
+ClientImpl::PerformEtcdRequest(const std::function<std::string(std::string_view)>& url_builder, std::string_view data) {
     auto endpoints = settings_.endpoints;
     utils::Shuffle(endpoints);
 
     std::shared_ptr<clients::http::Response> response_ptr;
     for (const auto& endpoint : endpoints) {
         response_ptr = http_client_.CreateRequest()
-                           .post(url_builder(endpoint), data)
+                           .post(url_builder(endpoint), std::string{data})
                            .retry(settings_.attempts)
                            .timeout(settings_.request_timeout_ms.count())
                            .perform();
         if (!ShouldRetry(response_ptr->status_code())) {
-            CheckResponseStatusCode(response_ptr->status_code());
+            CheckResponseStatusCode(response_ptr->status_code(), response_ptr->body());
             return response_ptr;
         }
     }
@@ -178,8 +165,8 @@ std::shared_ptr<clients::http::Response> ClientImpl::PerformEtcdRequest(
 }
 
 clients::http::StreamedResponse ClientImpl::PerformStreamedEtcdRequest(
-    const std::function<std::string(const std::string&)>& url_builder,
-    const std::string& data
+    const std::function<std::string(std::string_view)>& url_builder,
+    std::string_view data
 ) {
     auto endpoints = settings_.endpoints;
     utils::Shuffle(endpoints);
@@ -188,13 +175,13 @@ clients::http::StreamedResponse ClientImpl::PerformStreamedEtcdRequest(
     for (const auto& endpoint : endpoints) {
         const auto queue = concurrent::StringStreamQueue::Create();
         maybe_streamed_response = http_client_.CreateRequest()
-                                      .post(url_builder(endpoint), data)
+                                      .post(url_builder(endpoint), std::string{data})
                                       .retry(settings_.attempts)
                                       .timeout(settings_.watch_timeout_ms.count())
                                       .async_perform_stream_body(queue);
         auto& streamed_response = maybe_streamed_response.value();
         if (!ShouldRetry(streamed_response.StatusCode())) {
-            CheckResponseStatusCode(streamed_response.StatusCode());
+            CheckResponseStatusCode(streamed_response.StatusCode(), "There is no body in stream responses");
             return std::move(streamed_response);
         }
     }
@@ -207,7 +194,7 @@ clients::http::StreamedResponse ClientImpl::PerformStreamedEtcdRequest(
     }
 }
 
-void ClientImpl::WatchKeyChanges(const std::string& key, concurrent::SpscQueue<KeyValueState>::Producer producer) {
+void ClientImpl::WatchKeyChanges(const std::string key, concurrent::SpscQueue<KeyValueState>::Producer producer) {
     LOG_DEBUG() << "Start whatching key changes";
     auto stream_response = PerformStreamedEtcdRequest(BuildWatchUrl, BuildWatchData(key));
     std::string body_part;
