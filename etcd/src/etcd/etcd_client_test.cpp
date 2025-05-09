@@ -1,3 +1,5 @@
+#include <string>
+
 #include <etcd/client_impl.hpp>
 #include <userver/crypto/base64.hpp>
 #include <userver/etcd/client.hpp>
@@ -15,18 +17,39 @@ USERVER_NAMESPACE_BEGIN
 namespace {
 
 utest::HttpServerMock::HttpResponse EtcdRequestProcessor(const utest::HttpServerMock::HttpRequest& request) {
-    static std::map<std::string, std::string> storage;
+    static std::map<std::string, etcd::KeyValueState> storage;
 
     EXPECT_EQ(request.method, clients::http::HttpMethod::kPost);
     const auto request_body = formats::json::FromString(request.body);
     formats::json::ValueBuilder response_body_value_builder;
+    const auto key = crypto::base64::Base64Decode(request_body["key"].As<std::string>());
 
     if (request.path == "/v3/kv/put") {
-        const auto key = crypto::base64::Base64Decode(request_body["key"].As<std::string>());
         const auto value = crypto::base64::Base64Decode(request_body["value"].As<std::string>());
-        storage[key] = value;
+        int32_t new_version = 1;
+        const auto key_value_iterator = storage.find(key);
+        if (key_value_iterator != storage.end()) {
+            new_version = (key_value_iterator->second).version + 1;
+        }
+        storage[key] = etcd::KeyValueState{
+            /* .key = */ key,
+            /* .value = */ value,
+            /* .version = */ new_version,
+        };
+    } else if (request.path == "/v3/kv/range" && !request_body.HasMember("range_end")) {
+        const auto value_iterator = storage.find(key);
+        response_body_value_builder["kvs"] = formats::json::MakeArray();
+        if (value_iterator != storage.end()) {
+            response_body_value_builder["kvs"].PushBack(formats::json::MakeObject(
+                "key",
+                crypto::base64::Base64Encode((value_iterator->second).key),
+                "value",
+                crypto::base64::Base64Encode((value_iterator->second).value),
+                "version",
+                std::to_string((value_iterator->second).version)
+            ));
+        }
     } else if (request.path == "/v3/kv/range") {
-        const auto key = crypto::base64::Base64Decode(request_body["key"].As<std::string>());
         const auto range_end = crypto::base64::Base64Decode(request_body["range_end"].As<std::string>());
         auto first_key = storage.lower_bound(key);
         const auto last_key = storage.upper_bound(range_end);
@@ -35,14 +58,15 @@ utest::HttpServerMock::HttpResponse EtcdRequestProcessor(const utest::HttpServer
         while (first_key != last_key) {
             response_body_value_builder["kvs"].PushBack(formats::json::MakeObject(
                 "key",
-                crypto::base64::Base64Encode(first_key->first),
+                crypto::base64::Base64Encode((first_key->second).key),
                 "value",
-                crypto::base64::Base64Encode(first_key->second)
+                crypto::base64::Base64Encode((first_key->second).value),
+                "version",
+                std::to_string((first_key->second).version)
             ));
             ++first_key;
         }
     } else if (request.path == "/v3/kv/deleterange") {
-        const auto key = crypto::base64::Base64Decode(request_body["key"].As<std::string>());
         storage.erase(key);
     }
 
@@ -93,18 +117,28 @@ UTEST(Etcd, TestRange) {
             std::chrono::milliseconds{100'000},
         }
     );
+    const uint32_t range_size = 3;
 
-    EXPECT_EQ(etcd_client_ptr->Range("some_key"), (std::vector<std::string>{}));
+    EXPECT_TRUE(etcd_client_ptr->Range("some_key").empty());
 
-    etcd_client_ptr->Put("some_key_1", "some_value_1");
-    etcd_client_ptr->Put("some_key_2", "some_value_2");
-    etcd_client_ptr->Put("some_key_3", "some_value_3");
-    const auto range_result = etcd_client_ptr->Range("some_key");
-    EXPECT_EQ(range_result, (std::vector<std::string>{"some_value_1", "some_value_2", "some_value_3"}));
-    etcd_client_ptr->Delete("some_key_1");
-    etcd_client_ptr->Delete("some_key_2");
-    etcd_client_ptr->Delete("some_key_3");
-    EXPECT_EQ(etcd_client_ptr->Range("some_key"), (std::vector<std::string>{}));
+    for (uint32_t i = 1; i <= range_size; ++i) {
+        etcd_client_ptr->Put(fmt::format("some_key_{}", i), fmt::format("some_value_{}", i));
+    }
+
+    auto range_result = etcd_client_ptr->Range("some_key");
+    EXPECT_EQ(range_result.size(), range_size);
+    std::sort(range_result.begin(), range_result.end(), [](const etcd::KeyValueState& l, const etcd::KeyValueState& r) {
+        return l.value < r.value;
+    });
+    for (uint32_t i = 1; i <= range_size; ++i) {
+        EXPECT_EQ(range_result[i - 1].value, fmt::format("some_value_{}", i));
+    }
+    
+    for (uint32_t i = 1; i <= range_size; ++i) {
+        etcd_client_ptr->Delete(fmt::format("some_key_{}", i));
+    }
+    
+    EXPECT_TRUE(etcd_client_ptr->Range("some_key").empty());
 }
 
 USERVER_NAMESPACE_END

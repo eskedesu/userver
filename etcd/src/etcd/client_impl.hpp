@@ -16,26 +16,24 @@ class ClientImpl : public Client {
 public:
     ClientImpl(clients::http::Client& http_client, ClientSettings settings);
 
-    void Put(const std::string& key, const std::string& value) override;
+    void Put(std::string_view key, std::string_view value) override;
 
-    [[nodiscard]] std::optional<std::string> Get(const std::string& key) override;
+    [[nodiscard]] std::optional<std::string> Get(std::string_view key) override;
 
-    [[nodiscard]] std::vector<std::string> Range(const std::string& key_prefix) override;
+    [[nodiscard]] std::vector<KeyValueState> Range(std::string_view key_prefix) override;
 
-    void Delete(const std::string& key) override;
+    void Delete(std::string_view key) override;
 
-    WatchListener StartWatch(const std::string& key) override;
+    WatchListener StartWatch(std::string_view key) override;
 
 private:
     std::shared_ptr<clients::http::Response>
-    PerformEtcdRequest(const std::function<std::string(const std::string&)>& url_builder, const std::string& data);
+    PerformEtcdRequest(const std::function<std::string(std::string_view)>& url_builder, std::string_view data);
 
-    [[nodiscard]] clients::http::StreamedResponse PerformStreamedEtcdRequest(
-        const std::function<std::string(const std::string&)>& url_builder,
-        const std::string& data
-    );
+    [[nodiscard]] clients::http::StreamedResponse
+    PerformStreamedEtcdRequest(const std::function<std::string(std::string_view)>& url_builder, std::string_view data);
 
-    void WatchKeyChanges(const std::string& key, concurrent::SpscQueue<KeyValueState>::Producer producer);
+    void WatchKeyChanges(const std::string key, concurrent::SpscQueue<KeyValueState>::Producer producer);
 
     using WatchQueuePtr = std::shared_ptr<concurrent::SpscQueue<KeyValueState>>;
     clients::http::Client& http_client_;
