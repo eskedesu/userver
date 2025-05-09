@@ -3,7 +3,7 @@ project-alt-names:
   - yandex-userver-etcd
 maintainers:
   - Common components
-description: Etcd driver
+description: Etcd client
 
 libraries:
   - userver-core

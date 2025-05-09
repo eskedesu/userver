@@ -7,12 +7,12 @@ USERVER_NAMESPACE_BEGIN
 
 namespace etcd {
 
-struct EtcdRangeResponse {
+struct EtcdRangeResponse final {
     std::vector<KeyValueState> key_value_states;
 };
 
-struct EtcdWatchResponse {
-    /* data */
+struct EtcdWatchResponse final {
+    std::vector<KeyValueState> events;
 };
 
 }  // namespace etcd
@@ -20,6 +20,8 @@ struct EtcdWatchResponse {
 namespace formats::parse {
 
 etcd::EtcdRangeResponse Parse(const formats::json::Value& value, To<etcd::EtcdRangeResponse>);
+
+etcd::EtcdWatchResponse Parse(const formats::json::Value& value, To<etcd::EtcdWatchResponse>);
 
 }
 

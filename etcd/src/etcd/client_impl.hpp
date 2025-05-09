@@ -27,7 +27,7 @@ public:
     WatchListener StartWatch(std::string_view key) override;
 
 private:
-    std::shared_ptr<clients::http::Response>
+    clients::http::Response
     PerformEtcdRequest(const std::function<std::string(std::string_view)>& url_builder, std::string_view data);
 
     [[nodiscard]] clients::http::StreamedResponse

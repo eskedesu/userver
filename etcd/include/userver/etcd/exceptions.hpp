@@ -23,6 +23,12 @@ public:
     using EtcdError::EtcdError;
 };
 
+/// @brief Error during parsing of etcd watch response
+class EtcdWatchResponseParseError : public EtcdError {
+public:
+    using EtcdError::EtcdError;
+};
+
 }  // namespace etcd
 
 USERVER_NAMESPACE_END
