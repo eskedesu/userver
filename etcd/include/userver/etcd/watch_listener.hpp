@@ -19,7 +19,7 @@ struct WatchListener final {
 
     /// Get an event from etcd if there was one, otherwise waits asynchronously until a next event occurs.
     /// If the coroutine, that was spawned by StartWatch method of etcd client, is finished or failed, GetEvent raises
-    /// exception Get Event uses Consumer::Pop method for getting the event.
+    /// EtcdError exception Get Event uses Consumer::Pop method for getting the event.
     KeyValueState GetEvent();
 };
 

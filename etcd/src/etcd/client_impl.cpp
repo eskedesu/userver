@@ -84,7 +84,7 @@ bool ShouldRetry(const http::StatusCode status_code) {
 
 void CheckResponseStatusCode(const http::StatusCode status_code, std::string_view body) {
     if (status_code < kMinGoodStatusCode || kMaxGoodStatusCode < status_code) {
-        throw EtcdError(fmt::format("Got bad status code from etcd: {}, body: {}", status_code, body));
+        throw EtcdRequestError(fmt::format("Got bad status code from etcd: {}, body: {}", status_code, body));
     }
 }
 
@@ -96,25 +96,17 @@ ClientImpl::ClientImpl(clients::http::Client& http_client, ClientSettings settin
     : http_client_(http_client), settings_(settings) {}
 
 void ClientImpl::Put(std::string_view key, std::string_view value) {
-    try {
         PerformEtcdRequest(BuildPutUrl, BuildPutData(key, value));
-    } catch (const clients::http::HttpClientException& exception) {
-        throw EtcdRequestError(fmt::format("Request to etcd was unsuccessful: {}", exception.what()));
-    }
 }
 
 void ClientImpl::Delete(std::string_view key) {
-    try {
         PerformEtcdRequest(BuildDeleteUrl, BuildDeleteData(key));
-    } catch (const clients::http::HttpClientException& exception) {
-        throw EtcdRequestError(fmt::format("Request to etcd was unsuccessful: {}", exception.what()));
-    }
 }
 
 std::optional<std::string> ClientImpl::Get(std::string_view key) {
     auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key));
 
-    const auto range_response = formats::json::FromString(response->body()).As<EtcdRangeResponse>();
+    const auto range_response = formats::json::FromString(response.body()).As<EtcdRangeResponse>();
     const auto etcd_key = fmt::format("{}{}", kKeyPrefix, key);
     for (const auto& key_value_state : range_response.key_value_states) {
         if (key_value_state.key == etcd_key) {
@@ -127,7 +119,7 @@ std::optional<std::string> ClientImpl::Get(std::string_view key) {
 std::vector<KeyValueState> ClientImpl::Range(std::string_view key_prefix) {
     auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key_prefix, kLastPossibleKeyPrefix));
 
-    const auto range_response = formats::json::FromString(response->body()).As<EtcdRangeResponse>();
+    const auto range_response = formats::json::FromString(response.body()).As<EtcdRangeResponse>();
     return range_response.key_value_states;
 }
 
@@ -144,24 +136,34 @@ WatchListener ClientImpl::StartWatch(std::string_view key) {
     return WatchListener{queue->GetConsumer()};
 }
 
-std::shared_ptr<clients::http::Response>
+clients::http::Response
 ClientImpl::PerformEtcdRequest(const std::function<std::string(std::string_view)>& url_builder, std::string_view data) {
     auto endpoints = settings_.endpoints;
     utils::Shuffle(endpoints);
 
-    std::shared_ptr<clients::http::Response> response_ptr;
+    std::optional<clients::http::Response> maybe_response;
     for (const auto& endpoint : endpoints) {
-        response_ptr = http_client_.CreateRequest()
+        const auto response_ptr = http_client_.CreateRequest()
                            .post(url_builder(endpoint), std::string{data})
                            .retry(settings_.attempts)
                            .timeout(settings_.request_timeout_ms.count())
                            .perform();
-        if (!ShouldRetry(response_ptr->status_code())) {
-            CheckResponseStatusCode(response_ptr->status_code(), response_ptr->body());
-            return response_ptr;
+        if (response_ptr == nullptr) {
+            LOG_ERROR() << "Perform request returns nullptr";
+            continue;
+        }
+        maybe_response = *(response_ptr);
+        const auto& response = maybe_response.value();
+        if (!ShouldRetry(response.status_code())) {
+            CheckResponseStatusCode(response.status_code(), response.body());
+            return response;
         }
     }
-    throw EtcdError("Failed to get Ok response from etcd with error: " + response_ptr->body());
+    if (maybe_response.has_value()) {
+        throw EtcdRequestError("Failed to get Ok response from etcd with error: " + maybe_response.value().body());
+    } else {
+        throw EtcdRequestError("Failed to get streamed response, number of etcd endpoints: " + endpoints.size());
+    }
 }
 
 clients::http::StreamedResponse ClientImpl::PerformStreamedEtcdRequest(
@@ -199,23 +201,15 @@ void ClientImpl::WatchKeyChanges(const std::string key, concurrent::SpscQueue<Ke
     auto stream_response = PerformStreamedEtcdRequest(BuildWatchUrl, BuildWatchData(key));
     std::string body_part;
     while (stream_response.ReadChunk(body_part, engine::Deadline())) {
-        const auto watch_response = formats::json::FromString(body_part);
-        LOG_DEBUG() << "Got folowing chunk from etcd watch handler: " << watch_response;
-        if (!watch_response.HasMember("result")) {
-            LOG_DEBUG() << "No result in watch part response, skipping";
+        EtcdWatchResponse etcd_watch_response; 
+        try {
+            etcd_watch_response = formats::json::FromString(body_part).As<EtcdWatchResponse>();
+        } catch (const EtcdWatchResponseParseError& error) {
+            LOG_DEBUG() << "Couldnot parse etcd response: " << error;
             continue;
         }
-        if (!watch_response["result"].HasMember("events")) {
-            LOG_DEBUG() << "No events in watch part response, skipping";
-            continue;
-        }
-        for (const auto& event : watch_response["result"]["events"]) {
-            if (!event.HasMember("kv")) {
-                LOG_DEBUG() << "Event is not key value change, skipping";
-                continue;
-            }
-            LOG_DEBUG() << "Got event with kv: " << event["kv"];
-            if (!producer.Push(event["kv"].As<KeyValueState>())) {
+        for (auto event : etcd_watch_response.events) {
+            if (!producer.Push(std::move(event))) {
                 LOG_ERROR() << "Could not push to queue, aborting task";
                 return;
             };

@@ -54,10 +54,11 @@ def etcd_mock(mockserver):
                 'kvs': [{
                     'key': base64.b64encode(request_key).decode('utf-8'),
                     'value': base64.b64encode(etcd_storage[request_key]).decode('utf-8'),
+                    'version': '2',
                 }]
             })
         else:
-            return mockserver.make_response(json={})
+            return mockserver.make_response(json={'kvs': []})
 
         values = []
         for key, value in etcd_storage.items():
@@ -65,6 +66,7 @@ def etcd_mock(mockserver):
                 values.append({
                     'key': base64.b64encode(key).decode('utf-8'),
                     'value': base64.b64encode(value).decode('utf-8'),
+                    'version': '2',
                 })
 
         return mockserver.make_response(json={
