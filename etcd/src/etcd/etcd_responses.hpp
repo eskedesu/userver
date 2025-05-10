@@ -23,6 +23,6 @@ etcd::EtcdRangeResponse Parse(const formats::json::Value& value, To<etcd::EtcdRa
 
 etcd::EtcdWatchResponse Parse(const formats::json::Value& value, To<etcd::EtcdWatchResponse>);
 
-}
+}  // namespace formats::parse
 
 USERVER_NAMESPACE_END
