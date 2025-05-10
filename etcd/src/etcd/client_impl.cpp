@@ -35,8 +35,7 @@ const std::uint32_t kMaxRetryStatusCode = 599;
 const std::uint32_t kMinGoodStatusCode = 200;
 const std::uint32_t kMaxGoodStatusCode = 299;
 
-std::string kKeyPrefix = "/etcd/";
-std::string kLastPossibleKeyPrefix = "/etcd0";
+const std::string kKeyPrefix = "/etcd/";
 
 std::string BuildPutUrl(std::string_view service_url) { return fmt::format("{}/v3/kv/put", service_url); }
 
@@ -54,11 +53,9 @@ std::string BuildRangeData(std::string_view key, const std::optional<std::string
     if (!maybe_range_end.has_value()) {
         return formats::json::ToString(formats::json::MakeObject("key", crypto::base64::Base64Encode(etcd_key)));
     }
+    const auto etcd_range_end = fmt::format("{}{}", kKeyPrefix, maybe_range_end.value());
     return formats::json::ToString(formats::json::MakeObject(
-        "key",
-        crypto::base64::Base64Encode(etcd_key),
-        "range_end",
-        crypto::base64::Base64Encode(maybe_range_end.value())
+        "key", crypto::base64::Base64Encode(etcd_key), "range_end", crypto::base64::Base64Encode(etcd_range_end)
     ));
 }
 
@@ -96,20 +93,17 @@ ClientImpl::ClientImpl(clients::http::Client& http_client, ClientSettings settin
     : http_client_(http_client), settings_(settings) {}
 
 void ClientImpl::Put(std::string_view key, std::string_view value) {
-        PerformEtcdRequest(BuildPutUrl, BuildPutData(key, value));
+    PerformEtcdRequest(BuildPutUrl, BuildPutData(key, value));
 }
 
-void ClientImpl::Delete(std::string_view key) {
-        PerformEtcdRequest(BuildDeleteUrl, BuildDeleteData(key));
-}
+void ClientImpl::Delete(std::string_view key) { PerformEtcdRequest(BuildDeleteUrl, BuildDeleteData(key)); }
 
 std::optional<std::string> ClientImpl::Get(std::string_view key) {
     auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key));
 
     const auto range_response = formats::json::FromString(response.body()).As<EtcdRangeResponse>();
-    const auto etcd_key = fmt::format("{}{}", kKeyPrefix, key);
     for (const auto& key_value_state : range_response.key_value_states) {
-        if (key_value_state.key == etcd_key) {
+        if (key_value_state.key == key) {
             return key_value_state.value;
         }
     }
@@ -117,7 +111,8 @@ std::optional<std::string> ClientImpl::Get(std::string_view key) {
 }
 
 std::vector<KeyValueState> ClientImpl::Range(std::string_view key_prefix) {
-    auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key_prefix, kLastPossibleKeyPrefix));
+    const auto response =
+        PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key_prefix, fmt::format("{}\xFF", key_prefix)));
 
     const auto range_response = formats::json::FromString(response.body()).As<EtcdRangeResponse>();
     return range_response.key_value_states;
@@ -144,10 +139,10 @@ ClientImpl::PerformEtcdRequest(const std::function<std::string(std::string_view)
     std::optional<clients::http::Response> maybe_response;
     for (const auto& endpoint : endpoints) {
         const auto response_ptr = http_client_.CreateRequest()
-                           .post(url_builder(endpoint), std::string{data})
-                           .retry(settings_.attempts)
-                           .timeout(settings_.request_timeout_ms.count())
-                           .perform();
+                                      .post(url_builder(endpoint), std::string{data})
+                                      .retry(settings_.attempts)
+                                      .timeout(settings_.request_timeout_ms.count())
+                                      .perform();
         if (response_ptr == nullptr) {
             LOG_ERROR() << "Perform request returns nullptr";
             continue;
@@ -201,7 +196,7 @@ void ClientImpl::WatchKeyChanges(const std::string key, concurrent::SpscQueue<Ke
     auto stream_response = PerformStreamedEtcdRequest(BuildWatchUrl, BuildWatchData(key));
     std::string body_part;
     while (stream_response.ReadChunk(body_part, engine::Deadline())) {
-        EtcdWatchResponse etcd_watch_response; 
+        EtcdWatchResponse etcd_watch_response;
         try {
             etcd_watch_response = formats::json::FromString(body_part).As<EtcdWatchResponse>();
         } catch (const EtcdWatchResponseParseError& error) {
