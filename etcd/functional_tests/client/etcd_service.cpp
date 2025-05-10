@@ -94,8 +94,8 @@ int main(int argc, char* argv[]) {
                               .Append<components::TestsuiteSupport>()
                               .Append<components::HttpClient>()
                               .Append<clients::dns::Component>()
-                              .Append<server::handlers::TestsControl>()
                               .Append<etcd::Component>()
+                              .Append<server::handlers::TestsControl>()
                               .Append<HandlerV1Get>()
                               .Append<HandlerV1Put>()
                               .Append<HandlerV1Watch>();
