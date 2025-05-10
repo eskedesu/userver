@@ -4,6 +4,7 @@ FROM debian:bullseye-slim
 ### See base-ubuntu-22.04.dockerfile for inspiration
 
 # Set current timezone
+# TESTWEETIJTEOITJE
 RUN echo "Europe/Moscow" > /etc/timezone
 RUN ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime
 
