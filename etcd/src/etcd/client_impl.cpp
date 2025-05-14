@@ -155,9 +155,13 @@ ClientImpl::PerformEtcdRequest(const std::function<std::string(std::string_view)
         }
     }
     if (maybe_response.has_value()) {
-        throw EtcdRequestError(fmt::format("Failed to get Ok response from etcd with error: {}", maybe_response.value().body()));
+        throw EtcdRequestError(
+            fmt::format("Failed to get Ok response from etcd with error: {}", maybe_response.value().body())
+        );
     } else {
-        throw EtcdRequestError(fmt::format("Failed to get streamed response, number of etcd endpoints: {}", endpoints.size()));
+        throw EtcdRequestError(
+            fmt::format("Failed to get streamed response, number of etcd endpoints: {}", endpoints.size())
+        );
     }
 }
 
@@ -183,9 +187,9 @@ clients::http::StreamedResponse ClientImpl::PerformStreamedEtcdRequest(
         }
     }
     if (maybe_streamed_response.has_value()) {
-        throw EtcdError(
-                fmt::format("Failed to get Ok response from etcd with status code: {}", maybe_streamed_response.value().StatusCode())
-        );
+        throw EtcdError(fmt::format(
+            "Failed to get Ok response from etcd with status code: {}", maybe_streamed_response.value().StatusCode()
+        ));
     } else {
         throw EtcdError(fmt::format("Failed to get streamed response, number of etcd endpoints: {}", endpoints.size()));
     }

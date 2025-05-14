@@ -19,15 +19,11 @@ class HandlerV1Get final : public server::handlers::HttpHandlerBase {
 public:
     static constexpr std::string_view kName = "handler-v1-get";
 
-    HandlerV1Get(
-        const components::ComponentConfig& config,
-        const components::ComponentContext& component_context
-    )
+    HandlerV1Get(const components::ComponentConfig& config, const components::ComponentContext& component_context)
         : HttpHandlerBase(config, component_context),
           etcd_client_ptr_(component_context.FindComponent<etcd::Component>("etcd-client").GetClient()) {}
 
-    std::string
-    HandleRequestThrow(const server::http::HttpRequest& request, server::request::RequestContext&)
+    std::string HandleRequestThrow(const server::http::HttpRequest& request, server::request::RequestContext&)
         const override {
         const auto maybe_value = etcd_client_ptr_->Get(request.GetArg("key"));
         return maybe_value.value_or("No value");
@@ -41,15 +37,11 @@ class HandlerV1Put final : public server::handlers::HttpHandlerBase {
 public:
     static constexpr std::string_view kName = "handler-v1-put";
 
-    HandlerV1Put(
-        const components::ComponentConfig& config,
-        const components::ComponentContext& component_context
-    )
+    HandlerV1Put(const components::ComponentConfig& config, const components::ComponentContext& component_context)
         : HttpHandlerBase(config, component_context),
           etcd_client_ptr_(component_context.FindComponent<etcd::Component>("etcd-client").GetClient()) {}
 
-    std::string
-    HandleRequestThrow(const server::http::HttpRequest& request, server::request::RequestContext&)
+    std::string HandleRequestThrow(const server::http::HttpRequest& request, server::request::RequestContext&)
         const override {
         etcd_client_ptr_->Put(request.GetArg("key"), request.GetArg("value"));
 
@@ -64,15 +56,11 @@ class HandlerV1Watch final : public server::handlers::HttpHandlerBase {
 public:
     static constexpr std::string_view kName = "handler-v1-watch";
 
-    HandlerV1Watch(
-        const components::ComponentConfig& config,
-        const components::ComponentContext& component_context
-    )
+    HandlerV1Watch(const components::ComponentConfig& config, const components::ComponentContext& component_context)
         : HttpHandlerBase(config, component_context),
           etcd_client_ptr_(component_context.FindComponent<etcd::Component>("etcd-client").GetClient()) {}
 
-    std::string
-    HandleRequestThrow(const server::http::HttpRequest& request, server::request::RequestContext&)
+    std::string HandleRequestThrow(const server::http::HttpRequest& request, server::request::RequestContext&)
         const override {
         const auto key = request.GetArg("key");
         const auto maybe_original_value = etcd_client_ptr_->Get(key);

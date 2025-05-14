@@ -23,7 +23,9 @@ etcd::ClientSettings Parse(const yaml_config::YamlConfig& config, To<etcd::Clien
     return etcd::ClientSettings{
         /* .endpoints = */ config["endpoints"].As<std::vector<std::string>>(),
         /* .attempts = */ config["attempts"].As<std::uint32_t>(etcd::kDefaultAttempts),
-        /* .request_timeout_ms = */ config["request_timeout_ms"].As<std::chrono::milliseconds>(etcd::kDefaultRequestTimeout),
+        /* .request_timeout_ms = */
+        config["request_timeout_ms"]
+            .As<std::chrono::milliseconds>(etcd::kDefaultRequestTimeout),
         /* .watch_timeout_ms = */ config["watch_timeout_ms"].As<std::chrono::milliseconds>(etcd::kDefaultWatchTimeout),
     };
 }
