@@ -21,6 +21,8 @@
 #include <userver/utils/rand.hpp>
 #include <userver/yaml_config/yaml_config.hpp>
 
+#include <schemas/etcd.hpp>
+
 #include <etcd/etcd_responses.hpp>
 
 USERVER_NAMESPACE_BEGIN
@@ -36,6 +38,15 @@ const std::uint32_t kMinGoodStatusCode = 200;
 const std::uint32_t kMaxGoodStatusCode = 299;
 
 const std::string kKeyPrefix = "/etcd/";
+
+KeyValueState ConvertRawKeyValueState(const etcd_schemas::RawKeyValueState& raw_key_value_state) {
+    KeyValueState key_value_state;
+    key_value_state.key = chaotic::convert::Convert(raw_key_value_state.key, chaotic::convert::To<std::string>())
+                              .substr(kKeyPrefix.size());
+    key_value_state.value = chaotic::convert::Convert(raw_key_value_state.value, chaotic::convert::To<std::string>());
+    key_value_state.version = std::stoi(raw_key_value_state.version);
+    return key_value_state;
+}
 
 std::string BuildPutUrl(std::string_view service_url) { return fmt::format("{}/v3/kv/put", service_url); }
 
@@ -101,8 +112,12 @@ void ClientImpl::Delete(std::string_view key) { PerformEtcdRequest(BuildDeleteUr
 std::optional<std::string> ClientImpl::Get(std::string_view key) {
     auto response = PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key));
 
-    const auto range_response = formats::json::FromString(response.body()).As<EtcdRangeResponse>();
-    for (const auto& key_value_state : range_response.key_value_states) {
+    const auto maybe_range_response = formats::json::FromString(response.body()).As<etcd_schemas::EtcdRangeResponse>();
+    if (!maybe_range_response.kvs.has_value()) {
+        return std::nullopt;
+    }
+    for (const auto& raw_key_value_state : maybe_range_response.kvs.value()) {
+        const auto key_value_state = ConvertRawKeyValueState(raw_key_value_state);
         if (key_value_state.key == key) {
             return key_value_state.value;
         }
@@ -114,8 +129,18 @@ std::vector<KeyValueState> ClientImpl::Range(std::string_view key_prefix) {
     const auto response =
         PerformEtcdRequest(BuildRangeUrl, BuildRangeData(key_prefix, fmt::format("{}\xFF", key_prefix)));
 
-    const auto range_response = formats::json::FromString(response.body()).As<EtcdRangeResponse>();
-    return range_response.key_value_states;
+    const auto maybe_range_response = formats::json::FromString(response.body()).As<etcd_schemas::EtcdRangeResponse>();
+    if (!maybe_range_response.kvs.has_value()) {
+        return {};
+    }
+
+    std::vector<KeyValueState> range_result;
+    range_result.reserve(maybe_range_response.kvs.value().size());
+    for (const auto& raw_key_value_state : maybe_range_response.kvs.value()) {
+        const auto key_value_state = ConvertRawKeyValueState(raw_key_value_state);
+        range_result.push_back(key_value_state);
+    }
+    return range_result;
 }
 
 WatchListener ClientImpl::StartWatch(std::string_view key) {
@@ -197,9 +222,8 @@ clients::http::StreamedResponse ClientImpl::PerformStreamedEtcdRequest(
 
 void ClientImpl::WatchKeyChanges(const std::string key, concurrent::SpscQueue<KeyValueState>::Producer producer) {
     const auto watch_data = BuildWatchData(key);
-    
-    while (true)
-    {
+
+    while (true) {
         LOG_DEBUG() << "Start whatching key changes";
         auto stream_response = PerformStreamedEtcdRequest(BuildWatchUrl, watch_data);
         std::string body_part;
@@ -211,8 +235,9 @@ void ClientImpl::WatchKeyChanges(const std::string key, concurrent::SpscQueue<Ke
                 LOG_DEBUG() << "Couldnot parse etcd response: " << error;
                 continue;
             }
-            for (auto event : etcd_watch_response.events) {
-                if (!producer.Push(std::move(event))) {
+            for (const auto& raw_key_value_state : etcd_watch_response.raw_key_value_states) {
+                auto key_value_state = ConvertRawKeyValueState(raw_key_value_state);
+                if (!producer.Push(std::move(key_value_state))) {
                     LOG_ERROR() << "Could not push to queue, aborting task";
                     return;
                 };

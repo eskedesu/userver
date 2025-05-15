@@ -1,25 +1,20 @@
 #pragma once
 
-#include <userver/etcd/key_value_state.hpp>
 #include <userver/formats/parse/common_containers.hpp>
+
+#include <schemas/types.hpp>
 
 USERVER_NAMESPACE_BEGIN
 
 namespace etcd {
 
-struct EtcdRangeResponse final {
-    std::vector<KeyValueState> key_value_states;
-};
-
 struct EtcdWatchResponse final {
-    std::vector<KeyValueState> events;
+    std::vector<etcd_schemas::RawKeyValueState> raw_key_value_states;
 };
 
 }  // namespace etcd
 
 namespace formats::parse {
-
-etcd::EtcdRangeResponse Parse(const formats::json::Value& value, To<etcd::EtcdRangeResponse>);
 
 etcd::EtcdWatchResponse Parse(const formats::json::Value& value, To<etcd::EtcdWatchResponse>);
 

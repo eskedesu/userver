@@ -7,8 +7,8 @@ USERVER_NAMESPACE_BEGIN
 
 namespace etcd {
 
-WatchListener::WatchListener(concurrent::SpscQueue<KeyValueState>::Consumer&& consumer) :
-consumer_(std::move(consumer)) {}
+WatchListener::WatchListener(concurrent::SpscQueue<KeyValueState>::Consumer&& consumer)
+    : consumer_(std::move(consumer)) {}
 
 KeyValueState WatchListener::GetEvent() {
     KeyValueState event;

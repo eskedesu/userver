@@ -18,9 +18,9 @@ USERVER_NAMESPACE_BEGIN
 
 namespace chaotic::convert {
 
-crypto::base64::String64 Convert(const std::string& str, chaotic::convert::To<crypto::base64::String64>);
+::crypto::base64::String64 Convert(const std::string& str, chaotic::convert::To<::crypto::base64::String64>);
 
-std::string Convert(const crypto::base64::String64& str64, chaotic::convert::To<std::string>);
+std::string Convert(const ::crypto::base64::String64& str64, chaotic::convert::To<std::string>);
 
 }  // namespace chaotic::convert
 

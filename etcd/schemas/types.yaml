@@ -1,8 +1,8 @@
 components:
     schemas:
-        KeyValueState:
+        RawKeyValueState:
             type: object
-            additionalProperties: false
+            additionalProperties: true
             required:
               - key
               - value
@@ -10,7 +10,9 @@ components:
             properties:
                 key:
                     type: string
+                    format: byte
                 value:
                     type: string
+                    format: byte
                 version:
                     type: string
