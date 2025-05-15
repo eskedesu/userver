@@ -8,15 +8,6 @@ USERVER_NAMESPACE_BEGIN
 
 namespace formats::parse {
 
-etcd::EtcdRangeResponse Parse(const formats::json::Value& value, To<etcd::EtcdRangeResponse>) {
-    if (!value.HasMember("kvs")) {
-        return etcd::EtcdRangeResponse{};
-    }
-    return etcd::EtcdRangeResponse{
-        /* .key_value_states = */ value["kvs"].As<std::vector<etcd::KeyValueState>>(),
-    };
-}
-
 etcd::EtcdWatchResponse Parse(const formats::json::Value& value, To<etcd::EtcdWatchResponse>) {
     if (!value.HasMember("result")) {
         throw etcd::EtcdWatchResponseParseError(
@@ -34,7 +25,7 @@ etcd::EtcdWatchResponse Parse(const formats::json::Value& value, To<etcd::EtcdWa
             LOG_DEBUG() << "Event is not key value change, skipping";
             continue;
         }
-        etcd_watch_response.events.push_back(event["kv"].As<etcd::KeyValueState>());
+        etcd_watch_response.raw_key_value_states.push_back(event["kv"].As<etcd_schemas::RawKeyValueState>());
     }
     return etcd_watch_response;
 }

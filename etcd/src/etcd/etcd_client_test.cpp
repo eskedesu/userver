@@ -17,7 +17,7 @@ USERVER_NAMESPACE_BEGIN
 namespace {
 
 utest::HttpServerMock::HttpResponse EtcdRequestProcessor(const utest::HttpServerMock::HttpRequest& request) {
-    static std::map<std::string, etcd::KeyValueState> storage;
+    static std::map<std::string, KeyValueState> storage;
 
     EXPECT_EQ(request.method, clients::http::HttpMethod::kPost);
     const auto request_body = formats::json::FromString(request.body);
@@ -31,11 +31,12 @@ utest::HttpServerMock::HttpResponse EtcdRequestProcessor(const utest::HttpServer
         if (key_value_iterator != storage.end()) {
             new_version = (key_value_iterator->second).version + 1;
         }
-        storage[key] = etcd::KeyValueState{
-            /* .key = */ key,
-            /* .value = */ value,
-            /* .version = */ new_version,
-        };
+        KeyValueState key_value_state;
+        key_value_state.key = key;
+        key_value_state.value = value;
+        key_value_state.version = new_version;
+        storage[key] = key_value_state;
+
     } else if (request.path == "/v3/kv/range" && !request_body.HasMember("range_end")) {
         const auto value_iterator = storage.find(key);
         response_body_value_builder["kvs"] = formats::json::MakeArray();
@@ -130,6 +131,7 @@ UTEST(Etcd, TestRange) {
     std::sort(range_result.begin(), range_result.end(), [](const etcd::KeyValueState& l, const etcd::KeyValueState& r) {
         return l.value < r.value;
     });
+
     for (uint32_t i = 1; i <= range_size; ++i) {
         EXPECT_EQ(range_result[i - 1].value, fmt::format("some_value_{}", i));
     }

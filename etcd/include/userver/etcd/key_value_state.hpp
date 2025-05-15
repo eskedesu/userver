@@ -5,9 +5,6 @@
 
 #include <string>
 
-#include <userver/formats/json/value.hpp>
-#include <userver/formats/parse/common_containers.hpp>
-
 USERVER_NAMESPACE_BEGIN
 
 namespace etcd {
@@ -20,11 +17,5 @@ struct KeyValueState final {
 };
 
 }  // namespace etcd
-
-namespace formats::parse {
-
-etcd::KeyValueState Parse(const formats::json::Value& value, To<etcd::KeyValueState>);
-
-}
 
 USERVER_NAMESPACE_END
