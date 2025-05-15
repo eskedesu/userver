@@ -196,23 +196,29 @@ clients::http::StreamedResponse ClientImpl::PerformStreamedEtcdRequest(
 }
 
 void ClientImpl::WatchKeyChanges(const std::string key, concurrent::SpscQueue<KeyValueState>::Producer producer) {
-    LOG_DEBUG() << "Start whatching key changes";
-    auto stream_response = PerformStreamedEtcdRequest(BuildWatchUrl, BuildWatchData(key));
-    std::string body_part;
-    while (stream_response.ReadChunk(body_part, engine::Deadline())) {
-        EtcdWatchResponse etcd_watch_response;
-        try {
-            etcd_watch_response = formats::json::FromString(body_part).As<EtcdWatchResponse>();
-        } catch (const EtcdWatchResponseParseError& error) {
-            LOG_DEBUG() << "Couldnot parse etcd response: " << error;
-            continue;
+    const auto watch_data = BuildWatchData(key);
+    
+    while (true)
+    {
+        LOG_DEBUG() << "Start whatching key changes";
+        auto stream_response = PerformStreamedEtcdRequest(BuildWatchUrl, watch_data);
+        std::string body_part;
+        while (stream_response.ReadChunk(body_part, engine::Deadline())) {
+            EtcdWatchResponse etcd_watch_response;
+            try {
+                etcd_watch_response = formats::json::FromString(body_part).As<EtcdWatchResponse>();
+            } catch (const EtcdWatchResponseParseError& error) {
+                LOG_DEBUG() << "Couldnot parse etcd response: " << error;
+                continue;
+            }
+            for (auto event : etcd_watch_response.events) {
+                if (!producer.Push(std::move(event))) {
+                    LOG_ERROR() << "Could not push to queue, aborting task";
+                    return;
+                };
+            }
         }
-        for (auto event : etcd_watch_response.events) {
-            if (!producer.Push(std::move(event))) {
-                LOG_ERROR() << "Could not push to queue, aborting task";
-                return;
-            };
-        }
+        LOG_ERROR() << "Could not read chunk from stream response";
     }
 }
 
