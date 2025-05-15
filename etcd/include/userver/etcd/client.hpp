@@ -17,6 +17,8 @@
 #include <userver/etcd/watch_listener.hpp>
 #include <userver/yaml_config/fwd.hpp>
 
+#include <schemas/types.hpp>
+
 USERVER_NAMESPACE_BEGIN
 
 namespace etcd {

@@ -1,0 +1,16 @@
+components:
+    schemas:
+        KeyValueState:
+            type: object
+            additionalProperties: false
+            required:
+              - key
+              - value
+              - version
+            properties:
+                key:
+                    type: string
+                value:
+                    type: string
+                version:
+                    type: string
