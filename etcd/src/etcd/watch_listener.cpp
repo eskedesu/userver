@@ -7,9 +7,12 @@ USERVER_NAMESPACE_BEGIN
 
 namespace etcd {
 
+WatchListener::WatchListener(concurrent::SpscQueue<KeyValueState>::Consumer&& consumer) :
+consumer_(std::move(consumer)) {}
+
 KeyValueState WatchListener::GetEvent() {
     KeyValueState event;
-    if (!consumer.Pop(event)) {
+    if (!consumer_.Pop(event)) {
         throw EtcdError("Consumer pop failed while trying to get etcd key-value event");
     }
     return event;

@@ -14,13 +14,16 @@ USERVER_NAMESPACE_BEGIN
 namespace etcd {
 
 /// @brief Struct that return value change events in etcd
-struct WatchListener final {
-    concurrent::SpscQueue<KeyValueState>::Consumer consumer;
+class WatchListener final {
+public:
+    WatchListener(concurrent::SpscQueue<KeyValueState>::Consumer&& consumer);
 
-    /// Get an event from etcd if there was one, otherwise waits asynchronously until a next event occurs.
-    /// If the coroutine, that was spawned by StartWatch method of etcd client, is finished or failed, GetEvent raises
-    /// EtcdError exception Get Event uses Consumer::Pop method for getting the event.
+    /// @brief Get an event from etcd if there was one, otherwise waits asynchronously until a next event occurs.
+    /// If the event producing coroutine finished or failed, GetEvent raises EtcdError exception
     KeyValueState GetEvent();
+
+private:
+    concurrent::SpscQueue<KeyValueState>::Consumer consumer_;
 };
 
 }  // namespace etcd
