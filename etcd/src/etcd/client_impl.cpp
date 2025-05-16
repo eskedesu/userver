@@ -148,8 +148,8 @@ WatchListener ClientImpl::StartWatch(std::string_view key) {
     auto watch_queues_ptr = watch_queues_.Lock();
     watch_queues_ptr->push_back(queue);
 
-    bts_.AsyncDetach("watch task", [key, producer = queue->GetProducer(), this]() mutable {
-        this->WatchKeyChanges(std::string(key), std::move(producer));
+    bts_.AsyncDetach("watch task", [string_key = std::string(key), producer = queue->GetProducer(), this]() mutable {
+        this->WatchKeyChanges(string_key, std::move(producer));
     });
 
     return WatchListener{queue->GetConsumer()};
@@ -168,7 +168,7 @@ ClientImpl::PerformEtcdRequest(const std::function<std::string(std::string_view)
                                       .timeout(settings_.request_timeout_ms.count())
                                       .perform();
         if (response_ptr == nullptr) {
-            LOG_ERROR() << "Perform request returns nullptr";
+            LOG_WARNING() << "Perform request returns nullptr";
             continue;
         }
         maybe_response = *(response_ptr);
@@ -178,6 +178,7 @@ ClientImpl::PerformEtcdRequest(const std::function<std::string(std::string_view)
             return response;
         }
     }
+    LOG_ERROR() << "Request was not successful";
     if (maybe_response.has_value()) {
         throw EtcdRequestError(
             fmt::format("Failed to get Ok response from etcd with error: {}", maybe_response.value().body())
