@@ -19,7 +19,7 @@ public:
     WatchListener(concurrent::SpscQueue<KeyValueState>::Consumer&& consumer);
 
     /// @brief Get an event from etcd if there was one, otherwise waits asynchronously until a next event occurs.
-    /// If the event producing coroutine finished or failed, GetEvent raises EtcdError exception
+    /// @throws EtcdError if event producing coroutine finished or failed
     KeyValueState GetEvent();
 
 private:
