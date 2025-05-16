@@ -17,7 +17,7 @@ USERVER_NAMESPACE_BEGIN
 namespace {
 
 utest::HttpServerMock::HttpResponse EtcdRequestProcessor(const utest::HttpServerMock::HttpRequest& request) {
-    static std::map<std::string, KeyValueState> storage;
+    static std::map<std::string, etcd::KeyValueState> storage;
 
     EXPECT_EQ(request.method, clients::http::HttpMethod::kPost);
     const auto request_body = formats::json::FromString(request.body);
@@ -31,7 +31,7 @@ utest::HttpServerMock::HttpResponse EtcdRequestProcessor(const utest::HttpServer
         if (key_value_iterator != storage.end()) {
             new_version = (key_value_iterator->second).version + 1;
         }
-        KeyValueState key_value_state;
+        etcd::KeyValueState key_value_state;
         key_value_state.key = key;
         key_value_state.value = value;
         key_value_state.version = new_version;
