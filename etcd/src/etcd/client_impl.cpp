@@ -41,8 +41,7 @@ const std::string kKeyPrefix = "/etcd/";
 
 KeyValueState ConvertRawKeyValueState(const etcd_schemas::RawKeyValueState& raw_key_value_state) {
     KeyValueState key_value_state;
-    key_value_state.key = raw_key_value_state.key.GetUnderlying()
-                              .substr(kKeyPrefix.size());
+    key_value_state.key = raw_key_value_state.key.GetUnderlying().substr(kKeyPrefix.size());
     key_value_state.value = raw_key_value_state.value.GetUnderlying();
     key_value_state.version = std::stoi(raw_key_value_state.version);
     return key_value_state;
