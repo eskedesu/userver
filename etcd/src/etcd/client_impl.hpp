@@ -1,5 +1,6 @@
 #pragma once
 
+#include <userver/concurrent/background_task_storage.hpp>
 #include <userver/concurrent/queue.hpp>
 #include <userver/concurrent/variable.hpp>
 #include <userver/engine/mutex.hpp>
@@ -38,6 +39,7 @@ private:
     using WatchQueuePtr = std::shared_ptr<concurrent::SpscQueue<KeyValueState>>;
     clients::http::Client& http_client_;
     concurrent::Variable<std::vector<WatchQueuePtr>> watch_queues_;
+    concurrent::BackgroundTaskStorage bts_;
     const ClientSettings settings_;
 };
 

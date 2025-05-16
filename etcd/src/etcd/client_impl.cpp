@@ -148,9 +148,9 @@ WatchListener ClientImpl::StartWatch(std::string_view key) {
     auto watch_queues_ptr = watch_queues_.Lock();
     watch_queues_ptr->push_back(queue);
 
-    utils::Async("watch task", [key, producer = queue->GetProducer(), this]() mutable {
+    bts_.AsyncDetach("watch task", [key, producer = queue->GetProducer(), this]() mutable {
         this->WatchKeyChanges(std::string(key), std::move(producer));
-    }).Detach();
+    });
 
     return WatchListener{queue->GetConsumer()};
 }
