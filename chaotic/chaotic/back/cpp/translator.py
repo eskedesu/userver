@@ -444,7 +444,7 @@ class Generator:
 
         if schema.format and schema.format != types.StringFormat.BINARY:
             if schema.format == types.StringFormat.BYTE:
-                format_cpp_type = 'crypto::base64::String64'
+                format_cpp_type = 'userver::crypto::base64::String64'
             elif schema.format == types.StringFormat.UUID:
                 format_cpp_type = 'boost::uuids::uuid'
             elif schema.format == types.StringFormat.DATE:
